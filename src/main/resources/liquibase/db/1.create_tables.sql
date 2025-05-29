@@ -30,6 +30,20 @@ CREATE TABLE IF NOT EXISTS poi_bot.state
     chat_id bigint NOT NULL,
     user_id  bigint NOT NULL,
     state VARCHAR(255),
+    poi_data TEXT,
     callback_data TEXT
 );
 create unique index chat_id_user_id_state on poi_bot.state (chat_id, user_id);
+
+--changeset poi-bot:create_table_poi
+CREATE TABLE IF NOT EXISTS poi_bot.poi
+(
+    id uuid PRIMARY KEY NOT NULL,
+    chat_id bigint NOT NULL,
+    user_id  bigint NOT NULL,
+    name VARCHAR(255),
+    description TEXT,
+    address TEXT,
+    latitude DECIMAL(9, 6),
+    longitude DECIMAL(9, 6)
+);

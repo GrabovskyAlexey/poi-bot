@@ -32,4 +32,10 @@ class StateServiceImpl(
                 this.callbackData = callbackData
             }.also { stateRepository.saveAndFlush(it) }
     }
+
+    override fun getState(user: User, chat: Chat) =
+        stateRepository.findByUserIdAndChatId(user.id, chat.id)
+
+
+    override fun saveState(state: StateEntity) = stateRepository.saveAndFlush(state)
 }

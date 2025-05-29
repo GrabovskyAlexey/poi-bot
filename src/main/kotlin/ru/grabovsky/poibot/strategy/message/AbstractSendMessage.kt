@@ -9,11 +9,12 @@ import ru.grabovsky.poibot.service.interfaces.MessageGenerateService
 import ru.grabovsky.poibot.strategy.dto.DataModel
 import ru.grabovsky.poibot.util.CommonUtils.currentStateCode
 
+@Component
 abstract class AbstractSendMessage<T: DataModel?>(private val messageGenerateService: MessageGenerateService) {
 
-    fun classStepCode() = this.currentStateCode("Message")
+    fun classStateCode() = this.currentStateCode("Message")
 
-    fun message(data: T? = null): String = messageGenerateService.process(classStepCode(), data)
+    fun message(data: T? = null): String = messageGenerateService.process(classStateCode(), data)
 
     fun inlineButtons(user: User, chat: Chat, data: T?): List<InlineMarkupDataDto> = emptyList()
 

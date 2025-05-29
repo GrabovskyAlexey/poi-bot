@@ -76,7 +76,7 @@ class MessageServiceImpl(
             inlineKeyboardButtonsInner = mutableListOf()
             entry.value.forEach { markup: InlineMarkupDataDto ->
                 val button = InlineKeyboardButton(markup.text)
-                button.callbackData = markup.text
+                button.callbackData = markup.data
                 inlineKeyboardButtonsInner.add(button)
             }
             inlineKeyboardButtons.add(inlineKeyboardButtonsInner.toMutableList())
@@ -90,7 +90,7 @@ class MessageServiceImpl(
             KeyboardRow(
                 KeyboardButton.builder()
                     .text(rmd.text)
-                    .requestContact(rmd.requestContact)
+                    .requestLocation(rmd.requestLocation)
                     .build()
             )
         }

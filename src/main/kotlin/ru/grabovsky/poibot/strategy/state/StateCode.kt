@@ -11,7 +11,8 @@ enum class StateCode(val action: StateAction, val pause: Boolean = true, val tem
     ADD_DESC(SEND_MESSAGE),
     ADD_GEO(SEND_MESSAGE),
     ADD_ADDRESS(SEND_MESSAGE),
-    COMPLETE(NOTHING),
+    COMPLETE(SEND_MESSAGE, false),
+    CANCEL(SEND_MESSAGE, false),
 }
 
 enum class StateAction {

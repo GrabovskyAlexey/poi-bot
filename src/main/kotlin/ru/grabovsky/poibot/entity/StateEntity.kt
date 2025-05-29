@@ -21,6 +21,8 @@ data class StateEntity(
     @Column(name = "state")
     @Enumerated(EnumType.STRING)
     var state: StateCode? = null,
+    @Column(name = "poi_data")
+    var poiData: String? = null,
     @Column(name = "callback_data")
     var callbackData: String? = null
 )

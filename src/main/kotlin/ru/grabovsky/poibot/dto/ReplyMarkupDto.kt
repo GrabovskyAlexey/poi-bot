@@ -1,6 +1,6 @@
 package ru.grabovsky.poibot.dto
 
 data class ReplyMarkupDto(
-    val requestContact: Boolean,
+    val requestLocation: Boolean,
     val text: String
 )

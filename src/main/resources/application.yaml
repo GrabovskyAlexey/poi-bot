@@ -8,6 +8,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   liquibase:
     change-log: liquibase/changelog.yaml
+    default-schema: poi_bot
 
 telegram:
   name: ${TELEGRAM_BOT_NAME}
