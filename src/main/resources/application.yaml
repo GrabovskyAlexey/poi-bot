@@ -1,1 +1,15 @@
-spring.application.name=poi-bot
+spring:
+  application:
+    name: poi-bot
+  datasource:
+    url: jdbc:postgresql://localhost:5432/poi_bot
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  liquibase:
+    change-log: liquibase/changelog.yaml
+    default-schema: poi_bot
+
+telegram:
+  name: ${TELEGRAM_BOT_NAME}
+  token: ${TELEGRAM_BOT_TOKEN}
