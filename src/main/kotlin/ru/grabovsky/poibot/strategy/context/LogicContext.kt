@@ -1,5 +1,6 @@
 package ru.grabovsky.poibot.strategy.context
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.User
@@ -23,7 +24,12 @@ class LogicContext(
     fun execute(user: User, chat: Chat, callbackQuery: CallbackQuery, stateCode: StateCode): ExecuteStatus {
         return callbackProcessors[stateCode]
             ?.execute(user, chat, callbackQuery = callbackQuery)
-            ?: throw IllegalStateException("Callback not found with state: $stateCode")
+            ?: ExecuteStatus.NOTHING
+                .also { logger.warn {"Callback not found with state: $stateCode" } }
+    }
+
+    companion object {
+        val logger = KotlinLogging.logger {}
     }
 
 }
