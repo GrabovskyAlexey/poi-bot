@@ -1,13 +1,8 @@
 package ru.grabovsky.poibot.entity
 
-import jakarta.persistence.Column
-import jakarta.persistence.Embeddable
-import jakarta.persistence.Embedded
-import jakarta.persistence.Entity
-import jakarta.persistence.Id
-import jakarta.persistence.Table
+import jakarta.persistence.*
 import java.math.BigDecimal
-import java.util.UUID
+import java.util.*
 
 @Entity
 @Table(name = "poi", schema = "poi_bot")
@@ -28,13 +23,8 @@ data class PoIEntity(
     var description: String? = null,
     @Embedded
     var location: Point? = null
-) {
-    fun isNotEmpty() =
-        this.name != null
-                || this.address != null
-//                || this.photoId != null
-                || this.description != null
-                || this.location != null
-}
+)
+
+
 @Embeddable
 data class Point(val latitude: BigDecimal, val longitude: BigDecimal)

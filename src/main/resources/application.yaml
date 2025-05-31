@@ -9,7 +9,15 @@ spring:
   liquibase:
     change-log: liquibase/changelog.yaml
     default-schema: poi_bot
+  jpa:
+    show-sql: false
 
 telegram:
   name: ${TELEGRAM_BOT_NAME}
   token: ${TELEGRAM_BOT_TOKEN}
+
+logging:
+  level:
+    ru:
+      grabovsky:
+        poibot: debug

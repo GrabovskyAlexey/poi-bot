@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.chat.Chat
 import ru.grabovsky.poibot.entity.StateEntity
+import ru.grabovsky.poibot.exception.StateNotFoundException
 import ru.grabovsky.poibot.repository.StateRepository
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.StateService
@@ -25,7 +26,8 @@ class StateServiceImpl(
         (
                 stateRepository.findByUserIdAndChatId(user.id, chat.id) ?: StateEntity(
                     userId = user.id,
-                    chatId = chat.id
+                    chatId = chat.id,
+                    state = code
                 )
                 ).apply {
                 this.state = code
@@ -35,6 +37,7 @@ class StateServiceImpl(
 
     override fun getState(user: User, chat: Chat) =
         stateRepository.findByUserIdAndChatId(user.id, chat.id)
+            ?: throw StateNotFoundException("State for user: ${user.id} and chat: ${chat.id} not found")
 
 
     override fun saveState(state: StateEntity) = stateRepository.saveAndFlush(state)

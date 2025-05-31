@@ -6,5 +6,5 @@ import org.telegram.telegrambots.meta.api.objects.chat.Chat
 
 @Component
 class AddPhotoState : State {
-    override fun getNextState(user: User, chat: Chat): StateCode? = StateCode.PLACE_MENU
+    override fun getNextState(user: User, chat: Chat): StateCode? = StateCode.VERIFY
 }

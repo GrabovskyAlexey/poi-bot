@@ -10,9 +10,9 @@ import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands
 import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand
 import org.telegram.telegrambots.meta.generics.TelegramClient
-import ru.grabovsky.poibot.strategy.command.AbstractCommand
 import ru.grabovsky.poibot.config.BotConfig
 import ru.grabovsky.poibot.service.interfaces.ReceiverService
+import ru.grabovsky.poibot.strategy.command.AbstractCommand
 
 @Component
 class PoiBot(

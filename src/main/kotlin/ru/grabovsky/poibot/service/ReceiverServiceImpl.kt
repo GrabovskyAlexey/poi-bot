@@ -12,6 +12,7 @@ import ru.grabovsky.poibot.event.TelegramReceiveCallbackEvent
 import ru.grabovsky.poibot.event.TelegramReceiveMessageEvent
 import ru.grabovsky.poibot.service.interfaces.ReceiverService
 import ru.grabovsky.poibot.service.interfaces.StateService
+import ru.grabovsky.poibot.strategy.state.MarkType
 
 @Service
 class ReceiverServiceImpl(
@@ -28,23 +29,27 @@ class ReceiverServiceImpl(
     private fun processMessage(message: Message) {
         val user = message.from
         val chat = message.chat
-        val stateCode = getState(user, chat)
+        val state = getState(user, chat)
+        if (state.state.markType == MarkType.DELETE) {
+            state.deletedMessages.add(message.messageId)
+            stateService.saveState(state)
+        }
         applicationEventPublisher.publishEvent(
-            TelegramReceiveMessageEvent(user, chat, stateCode, message)
+            TelegramReceiveMessageEvent(user, chat, state.state, message)
         )
     }
 
     private fun processCallback(callbackQuery: CallbackQuery) {
         val user = callbackQuery.from
         val chat = callbackQuery.message.chat
-        val stateCode = getState(user, chat)
+        val state = getState(user, chat)
         applicationEventPublisher.publishEvent(
-            TelegramReceiveCallbackEvent(user, chat, stateCode, callbackQuery)
+            TelegramReceiveCallbackEvent(user, chat, state.state, callbackQuery)
         )
     }
 
     private fun getState(user: User, chat: Chat) =
-        requireNotNull(stateService.getState(user, chat)?.state) {"State code must not be null"}
+        stateService.getState(user, chat)
 
     companion object {
         val logger = KotlinLogging.logger {}
