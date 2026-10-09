@@ -7,7 +7,8 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
 }
 group = "ru.grabovsky"
-version = "0.0.1-SNAPSHOT"
+// Версию задаёт CI: ./gradlew bootJar -PappVersion=0.1.1 (локально — SNAPSHOT)
+version = providers.gradleProperty("appVersion").getOrElse("0.0.1-SNAPSHOT")
 val telegramBotVersion = "10.3.0"
 val testcontainersVersion = "2.0.5"
 java {
@@ -57,6 +58,17 @@ kotlin {
     compilerOptions {
         freeCompilerArgs.addAll("-Xjsr305=strict")
     }
+}
+springBoot {
+    buildInfo()
+}
+
+// Одна понятная jar для Docker: имя без версии, plain-jar не нужен
+tasks.bootJar {
+    archiveFileName.set("poibot.jar")
+}
+tasks.jar {
+    enabled = false
 }
 allOpen {
     annotation("jakarta.persistence.Entity")

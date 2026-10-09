@@ -1,0 +1,43 @@
+name: CI
+
+# Тесты на каждый pull request в dev и master (проверка "Build and test" делается обязательной в защите веток)
+# и на push в dev после слияния. Для master они запускаются как часть деплоя (deploy.yml).
+on:
+  push:
+    branches: [ dev ]
+  pull_request:
+    branches: [ dev, master ]
+  workflow_call:
+
+permissions:
+  contents: read
+
+# Новые коммиты в том же pull request отменяют устаревший прогон; остальные события не отменяются
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+      # Интеграционные тесты используют Testcontainers (Docker есть на ubuntu-latest)
+      - name: Build and test
+        run: ./gradlew build --console=plain
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: build/reports/tests/test
+          retention-days: 7

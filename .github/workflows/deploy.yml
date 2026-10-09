@@ -1,0 +1,155 @@
+name: Deploy
+
+# Каждый push в master: тесты → версия → образ в GHCR → деплой по SSH → git-тег и GitHub Release.
+# Версия: следующий patch после последнего тега vX.Y.Z (первый деплой — v0.1.0).
+# Минорное/мажорное повышение: запустить вручную (Actions → Deploy → Run workflow) и указать версию, например v0.2.0.
+on:
+  push:
+    branches: [ master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Явная версия vX.Y.Z (например, v0.2.0). Пусто — следующий patch автоматически.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# Деплои идут строго по очереди: иначе две версии могли бы получить один номер
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Build, publish and deploy
+    needs: tests
+    runs-on: ubuntu-latest
+    # В настройках репозитория (Settings → Environments → production) можно включить ручное подтверждение деплоя
+    environment: production
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare registry image
+        run: echo "REGISTRY_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Determine version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          already_tagged=false
+          if [ -n "$INPUT_VERSION" ]; then
+            tag="$INPUT_VERSION"
+            if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Версия должна иметь вид vX.Y.Z, получено: $tag" >&2
+              exit 1
+            fi
+            if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+              echo "Тег $tag уже существует" >&2
+              exit 1
+            fi
+          else
+            # Повторный запуск для уже выпущенного коммита не должен плодить новую версию
+            tag="$(git tag --points-at "$GITHUB_SHA" -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -n1)"
+            if [ -n "$tag" ]; then
+              already_tagged=true
+            else
+              last_tag="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+              if [ -z "$last_tag" ]; then
+                tag="v0.1.0"
+              else
+                IFS='.' read -r major minor patch <<< "${last_tag#v}"
+                tag="v${major}.${minor}.$((patch + 1))"
+              fi
+            fi
+          fi
+          echo "Версия: $tag"
+          {
+            echo "tag=$tag"
+            echo "version=${tag#v}"
+            echo "already_tagged=$already_tagged"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+      # Тесты уже прошли в job "tests"; здесь только jar с версией приложения
+      - name: Build backend jar
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: ./gradlew clean bootJar -PappVersion="$APP_VERSION" --console=plain
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          docker build \
+            --tag "$REGISTRY_IMAGE:$TAG" \
+            --tag "$REGISTRY_IMAGE:latest" \
+            .
+
+      - name: Push Docker image
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          docker push "$REGISTRY_IMAGE:$TAG"
+          docker push "$REGISTRY_IMAGE:latest"
+
+      - name: Upload deploy script
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "scripts/deploy-poibot.sh"
+          target: "~/poibot"
+          overwrite: true
+
+      - name: Run remote deploy
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            IMAGE_REPO=${{ env.REGISTRY_IMAGE }} \
+            CONTAINER_NAME=poibot \
+            bash ~/poibot/scripts/deploy-poibot.sh ${{ steps.version.outputs.tag }}
+
+      # Тег и релиз создаются только после успешного деплоя, поэтому тегов у несработавших версий нет
+      - name: Create GitHub release
+        if: steps.version.outputs.already_tagged != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
