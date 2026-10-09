@@ -57,7 +57,7 @@ Kotlin Style Guide, 4 пробела, один публичный класс н�
 - Callback-кнопки, которые должны работать повторно при уже существующем состоянии, не сравнивают состояние, а используют одноразовый флаг `fresh` (см. `SharedFlow`, `PublishFlow`) или вообще не хранят состояние (`ReviewsFlow`, `RelinkFlow` делают всё в `onCallback`).
 
 ## Деплой
-- Схема как в `royalguardians`: `.github/workflows/deploy.yml` на каждый push в master: тесты → версия `vX.Y.Z` (автоинкремент patch) → `docker build`/`docker push` в GHCR → `appleboy/scp-action` + `appleboy/ssh-action` запускают `scripts/deploy-poibot.sh [тег]` (`docker pull` + `docker run --network host`, без docker compose; без аргумента — образ `latest`, с аргументом — конкретная версия, например откат `v0.1.3`) → git-тег и GitHub Release. Секреты GitHub: `VPS_SSH_HOST`, `VPS_SSH_PORT`, `SSH_USER`, `VPS_SSH_KEY`. Подробности — `docs/DEPLOY.md`.
+- Схема как в `royalguardians`: `.github/workflows/deploy.yml` на каждый push в master: тесты → версия `vX.Y.Z` (major.minor из `version.txt`, patch - автоинкремент; для нового минора достаточно изменить файл) → `docker build`/`docker push` в GHCR → `appleboy/scp-action` + `appleboy/ssh-action` запускают `scripts/deploy-poibot.sh [тег]` (`docker pull` + `docker run --network host`, без docker compose; без аргумента — образ `latest`, с аргументом — конкретная версия, например откат `v0.1.3`) → git-тег и GitHub Release. Секреты GitHub: `VPS_SSH_HOST`, `VPS_SSH_PORT`, `SSH_USER`, `VPS_SSH_KEY`. Подробности — `docs/DEPLOY.md`.
 - `.github/workflows/ci.yml`: тесты на каждый pull request в dev и master и на push в dev; проверка `Build and test` делается обязательной в защите веток.
 - Версия приложения задаётся CI через `-PappVersion` (локально — `0.0.1-SNAPSHOT`) и пишется в лог при старте (`StartupInfo`). Jar собирается как `build/libs/poibot.jar` (plain-jar отключён); `Dockerfile` копирует именно её.
 - Конфигурация бота на сервере — файл окружения `~/poibot/.env` (формат `docker --env-file`, образец `scripts/.env.server.example`, права 600): токен, `PG_URL`, `PG_USER`, `PG_PASSWORD`, необязательно `USE_PORT`. Профиль `prod` (`application-prod.yaml`) включает скрипт деплоя.
@@ -65,3 +65,9 @@ Kotlin Style Guide, 4 пробела, один публичный класс н�
 - Из-за сети хоста порт приложения (`USE_PORT`, по умолчанию 8091) слушает только `127.0.0.1` и не должен пересекаться с другими сервисами (8080 занят у royalguardians).
 - Логи пишутся на хост в `~/poibot/logs/bot.log` (контейнер запускается от пользователя деплоя), смотреть `tail -f`.
 - Идеи и улучшения после MVP — `docs/BACKLOG.md`.
+
+## Заметки по релизу 0.2
+- Кнопка «Изменить» в карточке несёт контекст `EDIT:<id>:<P|N>:<расстояние>`; `AddPlaceFlow` хранит `CardRef` и после сохранения перерисовывает карточку (`PlaceCardFactory.refreshAction`).
+- `/nearby` после получения геопозиции отправляет короткое сообщение `searching` (убирает reply-клавиатуру и исчезает через 1 с). Геопозиция вне диалога (или не обработанная активным flow) запускает `NearbyFlow` с аргументом `LOC:<lat>:<lon>` (`ReceiverServiceImpl.searchNearby`).
+- В личке `AbstractCommand.processMessage` удаляет сообщение с командой после обработки (ошибки удаления игнорируются).
+- `/deleteme` (`DeleteMeFlow`, `UserDataService`): выгрузка JSON-документом (`SendDocumentAction`) и удаление в два шага; удаление выполняется только на шаге подтверждения. Данные чистятся каскадами БД, потом удаляются места без записей, оценок, комментариев и ссылок слияния.

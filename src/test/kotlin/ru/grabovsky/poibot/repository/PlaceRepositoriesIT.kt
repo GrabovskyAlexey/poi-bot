@@ -14,6 +14,13 @@ import org.testcontainers.DockerClientFactory
 import org.testcontainers.postgresql.PostgreSQLContainer
 import ru.grabovsky.poibot.entity.Chat
 import ru.grabovsky.poibot.entity.User
+import ru.grabovsky.poibot.entity.PlaceComment
+import ru.grabovsky.poibot.entity.PlaceRating
+import ru.grabovsky.poibot.entity.PlaceRatingId
+import ru.grabovsky.poibot.service.UserDataServiceImpl
+import com.fasterxml.jackson.databind.ObjectMapper
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.shouldNotBe
 import ru.grabovsky.poibot.geo.SearchRadius
 import ru.grabovsky.poibot.service.NearbySearchServiceImpl
 import ru.grabovsky.poibot.service.PlaceMatchingServiceImpl
@@ -76,6 +83,12 @@ class PlaceRepositoriesIT {
 
     @Autowired
     lateinit var placeCommentReportRepository: PlaceCommentReportRepository
+
+    @Autowired
+    lateinit var userRepository: UserRepository
+
+    @Autowired
+    lateinit var flowStateRepository: FlowStateRepository
 
     private fun owner(id: Long) = em.persistAndFlush(User(id, "Test", null, "test$id"))
 
@@ -435,6 +448,38 @@ class PlaceRepositoriesIT {
 
         placeRepository.findById(shared.placeId).get().mergedIntoId shouldBe null
         savedPlaceRepository.findById(second.id!!).get().placeId shouldBe shared.placeId
+    }
+
+    @Test
+    fun shouldDeleteAllUserDataAndKeepSharedPlaces() {
+        owner(1L)
+        owner(2L)
+        val records = saved()
+        val own = records.create(1L, SavedPlaceDraft(name = "Только моё", lat = 55.70, lon = 37.60))
+        val shared = records.create(1L, SavedPlaceDraft(name = "Общее", lat = 55.75, lon = 37.62))
+        val foreign = records.create(2L, SavedPlaceDraft(name = "Общее у друга"), linkPlaceId = shared.placeId)
+        placeRatingRepository.save(PlaceRating(PlaceRatingId(shared.placeId, 1L), 5))
+        placeCommentRepository.save(PlaceComment(placeId = shared.placeId, authorId = 1L, text = "Хорошо"))
+        em.flush()
+        em.clear()
+        val service = UserDataServiceImpl(
+            userRepository, savedPlaceRepository, placeRepository, placeRatingRepository,
+            placeCommentRepository, flowStateRepository, ObjectMapper(),
+        )
+
+        service.export(1L).toString(Charsets.UTF_8) shouldContain "Только моё"
+        service.deleteAll(1L)
+        em.flush()
+        em.clear()
+
+        userRepository.findUserByUserId(1L) shouldBe null
+        savedPlaceRepository.countByOwnerId(1L) shouldBe 0
+        placeRepository.findById(own.placeId).isPresent shouldBe false
+        placeRepository.findById(shared.placeId).isPresent shouldBe true
+        savedPlaceRepository.findById(foreign.id!!).isPresent shouldBe true
+        placeRatingRepository.findAllByPlaceId(shared.placeId) shouldHaveSize 0
+        placeCommentRepository.countByPlaceIdAndHiddenFalse(shared.placeId) shouldBe 0
+        userRepository.findUserByUserId(2L) shouldNotBe null
     }
 
     companion object {

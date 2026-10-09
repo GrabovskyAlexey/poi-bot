@@ -105,7 +105,7 @@ class PlaceCardFactory(
         if (place.hasLocation()) {
             result += button(owner, "buttons.places.map", locale, "MAP:$id", row, 0)
         }
-        result += button(FlowKeys.ADD_PLACE, "buttons.places.edit", locale, "EDIT:$id", row, 1)
+        result += button(FlowKeys.ADD_PLACE, "buttons.places.edit", locale, "EDIT:$id:$context", row, 1)
         row++
         if (manage) {
             result += button(owner, "buttons.places.delete", locale, "DELASK:$id", FlowInlineButton.LAST_ROW, 0)

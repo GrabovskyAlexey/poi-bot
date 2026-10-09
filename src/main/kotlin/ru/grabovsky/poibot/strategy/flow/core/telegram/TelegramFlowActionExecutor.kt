@@ -5,6 +5,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery
 import org.telegram.telegrambots.meta.api.methods.reactions.SetMessageReaction
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto
 import org.telegram.telegrambots.meta.api.methods.send.SendVenue
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
@@ -154,6 +155,15 @@ class TelegramFlowActionExecutor(
                     action.message.parseMode.telegramValue?.let { sendPhoto.parseMode = it }
                     sendPhoto.replyMarkup = buildInlineMarkup(action.message.inlineButtons)
                     val result = telegramClient.execute(sendPhoto)
+                    action.bindingKey?.let { bind(replacements, removed, it, result.messageId) }
+                }
+
+                is SendDocumentAction -> {
+                    val sendDocument = SendDocument.builder()
+                        .chatId(user.id)
+                        .document(InputFile(java.io.ByteArrayInputStream(action.content), action.fileName))
+                        .build()
+                    val result = telegramClient.execute(sendDocument)
                     action.bindingKey?.let { bind(replacements, removed, it, result.messageId) }
                 }
 

@@ -15,6 +15,11 @@ interface SavedPlaceRepository : JpaRepository<SavedPlace, Long> {
 
     fun findByIdAndOwnerId(id: Long, ownerId: Long): SavedPlace?
 
+    fun findByOwnerIdOrderByCreatedAtAscIdAsc(ownerId: Long): List<SavedPlace>
+
+    @Query("select distinct s.placeId from SavedPlace s where s.ownerId = :ownerId")
+    fun findPlaceIdsByOwnerId(@Param("ownerId") ownerId: Long): List<Long>
+
     fun countByOwnerId(ownerId: Long): Long
 
     fun countByPlaceId(placeId: Long): Long

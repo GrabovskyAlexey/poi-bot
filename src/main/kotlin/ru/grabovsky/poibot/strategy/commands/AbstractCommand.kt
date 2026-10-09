@@ -2,6 +2,7 @@ package ru.grabovsky.poibot.strategy.commands
 
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.telegram.telegrambots.extensions.bots.commandbot.commands.BotCommand
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.chat.Chat
 import org.telegram.telegrambots.meta.api.objects.message.Message
@@ -32,6 +33,7 @@ abstract class AbstractCommand(
             return
         }
         super.processMessage(telegramClient, message, arguments)
+        deleteCommandMessage(telegramClient, message)
     }
 
     override fun execute(
@@ -54,6 +56,15 @@ abstract class AbstractCommand(
             }
         }.onFailure { error ->
             logger.warn { "Error process flow ${flowKey.value} for user ${user.userName ?: user.firstName} with id ${user.id} with error: $error, stacktrace: ${error.stackTrace}" }
+        }
+    }
+
+    /** В личке сообщение с командой после обработки только засоряет чат; не получилось удалить - не страшно. */
+    private fun deleteCommandMessage(telegramClient: TelegramClient, message: Message) {
+        runCatching {
+            telegramClient.execute(DeleteMessage.builder().chatId(message.chatId).messageId(message.messageId).build())
+        }.onFailure { error ->
+            logger.debug { "Command message ${message.messageId} not deleted: ${error.message}" }
         }
     }
 
