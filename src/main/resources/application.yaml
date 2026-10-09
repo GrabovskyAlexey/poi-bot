@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: poibot
+  datasource:
+    url: ${PG_URL}
+    username: ${PG_USER}
+    password: ${PG_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  liquibase:
+    change-log: liquibase/changelog.yaml
+    default-schema: poi_bot
+  jpa:
+    show-sql: false
+
+telegram:
+  name: ${TELEGRAM_BOT_NAME}
+  token: ${TELEGRAM_BOT_TOKEN}
+server:
+  port: ${USE_PORT:8080}
+
+logging:
+  file:
+    name: ./logs/bot.log
+  level:
+    ru:
+      grabovsky:
+        poibot: debug
