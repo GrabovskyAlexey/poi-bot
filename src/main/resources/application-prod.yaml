@@ -1,0 +1,16 @@
+# Профиль продакшена (SPRING_PROFILES_ACTIVE=prod, задаёт scripts/deploy-poibot.sh)
+
+# Контейнер работает в сети хоста: порт приложения (actuator) занимает порт самого сервера,
+# поэтому слушаем только localhost и не используем 8080 (занят другими сервисами)
+server:
+  port: ${USE_PORT:8091}
+  address: 127.0.0.1
+
+logging:
+  file:
+    # каталог смонтирован с хоста; в консоль (docker logs) логи пишутся всегда
+    name: /opt/app/logs/bot.log
+  level:
+    ru:
+      grabovsky:
+        poibot: info

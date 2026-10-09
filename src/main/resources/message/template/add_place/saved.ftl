@@ -1,0 +1,1 @@
+✅ Место <b>${data.name?html}</b> <#if data.editing>обновлено<#else>сохранено</#if>.

@@ -8,11 +8,13 @@ fun FlowKey.buildMessage(
     inlineButtons: List<FlowInlineButton> = emptyList(),
     replyButtons: List<FlowReplyButton> = emptyList(),
     parseMode: FlowParseMode = FlowParseMode.MARKDOWN,
+    autoDeleteAfterSeconds: Int? = null,
 ): FlowMessage = FlowMessage(
     flowKey = this,
     stepKey = step.key,
     model = model,
     inlineButtons = inlineButtons,
     replyButtons = replyButtons,
-    parseMode = parseMode
+    parseMode = parseMode,
+    autoDeleteAfterSeconds = autoDeleteAfterSeconds,
 )

@@ -39,3 +39,31 @@ data class SetReactionAction(
 ) : FlowAction {
     override val bindingKey: String? = null
 }
+
+/** Фото с подписью; текст сообщения (шаблон) уходит в caption (до 1024 символов). */
+data class SendPhotoAction(
+    override val bindingKey: String?,
+    val photoFileId: String,
+    val message: FlowMessage,
+) : FlowAction
+
+/** Показ места на карте (Telegram venue). */
+data class SendVenueAction(
+    override val bindingKey: String?,
+    val title: String,
+    val address: String?,
+    val latitude: Double,
+    val longitude: Double,
+) : FlowAction
+
+/**
+ * Перерисовывает уже отправленное сообщение-карточку по его id (когда id не хранится в привязках flow).
+ * [caption] = true для карточек с фото (правится подпись, иначе текст). Ошибки правки не критичны.
+ */
+data class EditCardAction(
+    val messageId: Int,
+    val message: FlowMessage,
+    val caption: Boolean,
+) : FlowAction {
+    override val bindingKey: String? = null
+}

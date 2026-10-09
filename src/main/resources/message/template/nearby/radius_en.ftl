@@ -1,0 +1,1 @@
+Choose the search radius (now <b>${data.currentText}</b>):

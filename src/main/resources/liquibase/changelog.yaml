@@ -1,3 +1,0 @@
-databaseChangeLog:
-  - include:
-      file: liquibase/changelog/1.create_tables.sql
