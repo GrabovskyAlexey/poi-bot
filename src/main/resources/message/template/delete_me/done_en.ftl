@@ -1,0 +1,1 @@
+✅ All your data has been deleted. If you want to come back, send /start.

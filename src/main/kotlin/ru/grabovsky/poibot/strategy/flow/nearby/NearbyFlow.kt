@@ -19,6 +19,7 @@ enum class NearbyStep(override val key: String) : FlowStep {
     WAIT("wait"),
     RESULT("result"),
     RADIUS("radius"),
+    SEARCHING("searching"),
 }
 
 data class NearbyState(
@@ -62,6 +63,15 @@ class NearbyFlow(
 
     override fun start(context: FlowStartContext): FlowResult<NearbyState> {
         val state = NearbyState(radiusMeters = savedRadius(context.user.id))
+        startLocation(context.args)?.let { (lat, lon) ->
+            // Геопозиция, присланная вне диалога: сразу показываем места рядом
+            state.lat = lat
+            state.lon = lon
+            return FlowResult(
+                NearbyStep.RESULT.key, state,
+                listOf(SendMessageAction(RESULT_BINDING, resultMessage(context.user.id, state, context.locale))),
+            )
+        }
         val message = key.buildMessage(
             step = NearbyStep.WAIT,
             model = WaitView(formatter.distance(state.radiusMeters, context.locale)),
@@ -84,6 +94,7 @@ class NearbyFlow(
         val actions = listOf(
             DeleteMessageIdAction(message.messageId),
             DeleteMessageAction(WAIT_BINDING),
+            SendMessageAction(SEARCH_BINDING, searchingMessage()),
             DeleteMessageAction(RESULT_BINDING),
             DeleteMessageAction(CARD_BINDING),
             SendMessageAction(RESULT_BINDING, resultMessage(message.from.id, state, context.locale)),
@@ -178,6 +189,18 @@ class NearbyFlow(
         return buttons
     }
 
+    /** Короткое сообщение, которое убирает reply-клавиатуру «Отправить геопозицию» и тут же исчезает. */
+    private fun searchingMessage(): FlowMessage =
+        FlowMessage(key, NearbyStep.SEARCHING.key, removeReplyKeyboard = true, autoDeleteAfterSeconds = SEARCH_VISIBLE_SECONDS)
+
+    /** Аргумент запуска `LOC:<lat>:<lon>` - координаты, присланные боту без активного диалога. */
+    private fun startLocation(args: String?): Pair<Double, Double>? {
+        val parts = args?.takeIf { it.startsWith("LOC:") }?.split(':') ?: return null
+        val lat = parts.getOrNull(1)?.toDoubleOrNull() ?: return null
+        val lon = parts.getOrNull(2)?.toDoubleOrNull() ?: return null
+        return lat to lon
+    }
+
     private fun radiusMessage(state: NearbyState, locale: Locale): FlowMessage {
         val buttons = SearchRadius.entries.mapIndexed { index, radius ->
             val mark = if (radius.meters == state.radiusMeters) "✅ " else ""
@@ -219,6 +242,8 @@ class NearbyFlow(
 
     private companion object {
         const val WAIT_BINDING = "wait"
+        const val SEARCH_BINDING = "searching"
+        const val SEARCH_VISIBLE_SECONDS = 1
         const val RESULT_BINDING = "result"
         const val CARD_BINDING = "card"
         const val MAX_SHOWN = 10

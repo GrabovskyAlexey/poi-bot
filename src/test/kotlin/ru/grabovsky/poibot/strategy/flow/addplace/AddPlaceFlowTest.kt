@@ -32,7 +32,8 @@ class AddPlaceFlowTest : ShouldSpec({
     val savedPlaceService = mockk<SavedPlaceService>()
     val matching = mockk<PlaceMatchingService>()
     val i18n = KeyI18n()
-    val flow = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, io.micrometer.core.instrument.simple.SimpleMeterRegistry())
+    val cardFactory = mockk<ru.grabovsky.poibot.strategy.flow.places.PlaceCardFactory>()
+    val flow = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, cardFactory, io.micrometer.core.instrument.simple.SimpleMeterRegistry())
     val tgUser = mockk<TgUser> { every { id } returns 7L }
 
     beforeTest { clearMocks(savedPlaceService, matching) }
@@ -230,6 +231,22 @@ class AddPlaceFlowTest : ShouldSpec({
         verify(exactly = 0) { matching.findCandidates(any(), any(), any()) }
     }
 
+    should("refresh the opened card after saving an edit") {
+        val refresh = mockk<FlowAction>()
+        val state = AddPlaceState(
+            editingId = 3L, name = "Хмель",
+            card = ru.grabovsky.poibot.strategy.flow.places.CardRef(messageId = 42, savedId = 3L),
+        )
+        val saved = SavedPlace(id = 3L, ownerId = 7L, placeId = 1L, name = "Хмель")
+        every { savedPlaceService.update(7L, 3L, any(), null) } returns saved
+        every { cardFactory.refreshAction(state.card!!, saved, locale) } returns refresh
+
+        val result = flow.onCallback(context(state), callback(), "SAVE")
+
+        result.shouldNotBeNull()
+        result.actions.shouldContain(refresh)
+    }
+
     should("show an alert when the per-user limit is reached") {
         val state = AddPlaceState(name = "Хмель")
         every { savedPlaceService.create(7L, any(), null) } throws PlaceLimitExceededException(500)
@@ -251,7 +268,7 @@ class AddPlaceFlowTest : ShouldSpec({
 
     should("count shown and rejected candidates for the duplicate-places metric") {
         val registry = io.micrometer.core.instrument.simple.SimpleMeterRegistry()
-        val metered = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, registry)
+        val metered = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, cardFactory, registry)
         val state = AddPlaceState(name = "Хмель", lat = 55.0, lon = 37.0)
         every { matching.findCandidates(55.0, 37.0, "Хмель") } returns listOf(PlaceCandidate(5L, "Хмель", null, 10, 1.0))
         every { savedPlaceService.create(7L, any(), null) } returns SavedPlace(id = 1L, ownerId = 7L, placeId = 9L, name = "Хмель")

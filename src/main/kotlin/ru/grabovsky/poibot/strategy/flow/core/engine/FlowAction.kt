@@ -67,3 +67,10 @@ data class EditCardAction(
 ) : FlowAction {
     override val bindingKey: String? = null
 }
+
+/** Файл в виде документа (например, выгрузка данных пользователя). */
+data class SendDocumentAction(
+    override val bindingKey: String?,
+    val fileName: String,
+    val content: ByteArray,
+) : FlowAction

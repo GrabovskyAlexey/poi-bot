@@ -1,8 +1,8 @@
 name: Deploy
 
 # Каждый push в master: тесты → версия → образ в GHCR → деплой по SSH → git-тег и GitHub Release.
-# Версия: следующий patch после последнего тега vX.Y.Z (первый деплой — v0.1.0).
-# Минорное/мажорное повышение: запустить вручную (Actions → Deploy → Run workflow) и указать версию, например v0.2.0.
+# Версия: major.minor берётся из version.txt, patch - следующий после последнего тега этой серии (первый - .0).
+# Минорное/мажорное повышение: изменить version.txt. Вручную версию можно задать через Run workflow.
 on:
   push:
     branches: [ master ]
@@ -71,12 +71,17 @@ jobs:
             if [ -n "$tag" ]; then
               already_tagged=true
             else
-              last_tag="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+              # major.minor задаёт файл version.txt, patch - следующий после последнего тега этой серии
+              base="$(tr -d '[:space:]' < version.txt)"
+              if ! [[ "$base" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                echo "version.txt должен содержать major.minor, например 0.2, получено: $base" >&2
+                exit 1
+              fi
+              last_tag="$(git tag -l "v${base}.*" --sort=-v:refname | grep -E "^v${base//./\.}\.[0-9]+$" | head -n1 || true)"
               if [ -z "$last_tag" ]; then
-                tag="v0.1.0"
+                tag="v${base}.0"
               else
-                IFS='.' read -r major minor patch <<< "${last_tag#v}"
-                tag="v${major}.${minor}.$((patch + 1))"
+                tag="v${base}.$(( ${last_tag##*.} + 1 ))"
               fi
             fi
           fi
