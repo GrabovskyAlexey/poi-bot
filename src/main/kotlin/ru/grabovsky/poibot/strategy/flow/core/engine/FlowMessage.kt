@@ -8,6 +8,10 @@ data class FlowMessage(
     val replyButtons: List<FlowReplyButton> = emptyList(),
     val parseMode: FlowParseMode = FlowParseMode.MARKDOWN,
     val replyToMessageId: Int? = null,
+    /** Убрать reply-клавиатуру, показанную ранее (используется, если нет своих кнопок). */
+    val removeReplyKeyboard: Boolean = false,
+    /** Удалить сообщение через N секунд после отправки/редактирования (временные подтверждения). */
+    val autoDeleteAfterSeconds: Int? = null,
 )
 
 data class FlowInlineButton(

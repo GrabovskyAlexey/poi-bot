@@ -16,6 +16,7 @@ import org.telegram.telegrambots.meta.api.objects.reactions.ReactionTypeEmoji
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton
@@ -27,12 +28,16 @@ import ru.grabovsky.poibot.strategy.flow.core.engine.*
 import ru.grabovsky.poibot.strategy.flow.core.templating.FlowTemplateRenderer
 import ru.grabovsky.poibot.util.TelegramLogUtils
 import java.util.*
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 @Component
 class TelegramFlowActionExecutor(
     private val telegramClient: TelegramClient,
     private val objectMapper: ObjectMapper,
     private val templateRenderer: FlowTemplateRenderer,
+    private val scheduler: ScheduledExecutorService = defaultScheduler(),
 ) : FlowActionExecutor {
     override fun execute(
         user: User,
@@ -58,11 +63,12 @@ class TelegramFlowActionExecutor(
                     }
                     val result = telegramClient.execute(sendMessage)
                     logger.debug { "Message sent: messageId=${result.messageId}, userId=${user.id}" }
-                    action.bindingKey?.let { replacements[it] = result.messageId }
+                    action.bindingKey?.let { bind(replacements, removed, it, result.messageId) }
+                    scheduleDeletion(user.id, result.messageId, action.message)
                 }
 
                 is EditMessageAction -> {
-                    val messageId = currentBindings[action.bindingKey]
+                    val messageId = replacements[action.bindingKey] ?: currentBindings[action.bindingKey]
                         ?: error("Message binding ${action.bindingKey} not found for user ${user.id}")
                     val rendered = renderMessage(action.message, locale)
                     val editMessage = buildEditMessage(user.id, messageId, rendered, action.message)
@@ -72,10 +78,11 @@ class TelegramFlowActionExecutor(
                         TelegramLogUtils.formatEditMessage(editMessage, objectMapper)
                     }
                     executeEdit(editMessage)
+                    scheduleDeletion(user.id, messageId, action.message)
                 }
 
                 is DeleteMessageAction -> {
-                    val messageId = currentBindings[action.bindingKey]
+                    val messageId = replacements[action.bindingKey] ?: currentBindings[action.bindingKey]
                         ?: return@forEach
                     logger.debug { "Deleting message: userId=${user.id}, messageId=$messageId, bindingKey=${action.bindingKey}" }
                     telegramClient.execute(
@@ -85,6 +92,7 @@ class TelegramFlowActionExecutor(
                             .build()
                     )
                     removed += action.bindingKey
+                    replacements.remove(action.bindingKey)
                 }
 
                 is DeleteMessageIdAction -> {
@@ -125,7 +133,7 @@ class TelegramFlowActionExecutor(
                     action.message.parseMode.telegramValue?.let { sendPhoto.parseMode = it }
                     sendPhoto.replyMarkup = buildInlineMarkup(action.message.inlineButtons)
                     val result = telegramClient.execute(sendPhoto)
-                    action.bindingKey?.let { replacements[it] = result.messageId }
+                    action.bindingKey?.let { bind(replacements, removed, it, result.messageId) }
                 }
 
                 is SendVenueAction -> {
@@ -137,7 +145,7 @@ class TelegramFlowActionExecutor(
                         .address(action.address ?: "")
                         .build()
                     val result = telegramClient.execute(sendVenue)
-                    action.bindingKey?.let { replacements[it] = result.messageId }
+                    action.bindingKey?.let { bind(replacements, removed, it, result.messageId) }
                 }
 
                 is SetReactionAction -> {
@@ -165,6 +173,22 @@ class TelegramFlowActionExecutor(
             replacements = replacements,
             removed = removed,
         )
+    }
+
+    /** Временные сообщения (подтверждения) удаляются сами, чтобы не засорять чат. */
+    private fun scheduleDeletion(chatId: Long, messageId: Int, message: FlowMessage) {
+        val seconds = message.autoDeleteAfterSeconds ?: return
+        scheduler.schedule({
+            runCatching {
+                telegramClient.execute(DeleteMessages.builder().chatId(chatId).messageIds(listOf(messageId)).build())
+            }.onFailure { logger.debug { "Could not auto-delete message $messageId: ${it.message}" } }
+        }, seconds.toLong(), TimeUnit.SECONDS)
+    }
+
+    /** Новая привязка отменяет удаление того же ключа в этом пакете действий (удалить старое + отправить новое). */
+    private fun bind(replacements: MutableMap<String, Int>, removed: MutableSet<String>, key: String, messageId: Int) {
+        replacements[key] = messageId
+        removed.remove(key)
     }
 
     /** Telegram отвечает 400, если содержимое не изменилось; для флоу это не ошибка. */
@@ -205,6 +229,11 @@ class TelegramFlowActionExecutor(
     }
 
     private fun buildReplyMarkup(message: FlowMessage): ReplyKeyboard? {
+        val keyboard = buildKeyboard(message)
+        return keyboard ?: if (message.removeReplyKeyboard) ReplyKeyboardRemove(true) else null
+    }
+
+    private fun buildKeyboard(message: FlowMessage): ReplyKeyboard? {
         return message.inlineButtons.takeIf { it.isNotEmpty() }?.let { buildInlineMarkup(it) }
             ?: message.replyButtons.takeIf { it.isNotEmpty() }?.let { replyButtons ->
                 val keyboardRows = replyButtons.map { button ->
@@ -212,7 +241,8 @@ class TelegramFlowActionExecutor(
                         add(
                             KeyboardButton.builder()
                                 .text(button.text)
-                                .requestLocation(button.requestLocation)
+                                // Поля типа кнопки взаимоисключающие: false тоже считается заданным, поэтому передаём только true
+                                .requestLocation(button.requestLocation.takeIf { it })
                                 .build()
                                 .also { keyboardButton ->
                                     button.requestChatId?.let { keyboardButton.requestChat = groupPickerRequest(it) }
@@ -255,5 +285,10 @@ class TelegramFlowActionExecutor(
     companion object {
         private val logger = KotlinLogging.logger {}
         private const val MAX_CAPTION_LENGTH = 1024
+
+        private fun defaultScheduler(): ScheduledExecutorService =
+            Executors.newSingleThreadScheduledExecutor { runnable ->
+                Thread(runnable, "flow-auto-delete").apply { isDaemon = true }
+            }
     }
 }

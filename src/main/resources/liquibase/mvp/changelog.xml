@@ -9,5 +9,6 @@
     <include file="liquibase/mvp/1.create_tables.sql"/>
     <include file="liquibase/mvp/2.create_chats.sql"/>
     <include file="liquibase/mvp/3.create_places.sql"/>
+    <include file="liquibase/mvp/4.create_saved_place_chat.sql"/>
 
 </databaseChangeLog>

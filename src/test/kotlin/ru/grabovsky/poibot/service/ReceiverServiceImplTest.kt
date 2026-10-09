@@ -16,6 +16,7 @@ import org.telegram.telegrambots.meta.api.objects.chat.Chat
 import ru.grabovsky.poibot.entity.FlowState
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.FlowStateService
+import ru.grabovsky.poibot.service.interfaces.GroupPlacesService
 import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowCallbackPayload
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowEngine
@@ -29,12 +30,13 @@ class ReceiverServiceImplTest : ShouldSpec({
     val flowEngine = mockk<FlowEngine>()
     val flowStateService = mockk<FlowStateService>()
     val chatService = mockk<ChatService>(relaxed = true)
+    val groupPlacesService = mockk<GroupPlacesService>(relaxed = true)
     val privateChat = mockk<Chat> { every { isUserChat } returns true }
     val objectMapper = ObjectMapper().findAndRegisterModules()
-    val service = ReceiverServiceImpl(userService, objectMapper, flowEngine, flowStateService, chatService)
+    val service = ReceiverServiceImpl(userService, objectMapper, flowEngine, flowStateService, chatService, groupPlacesService)
 
     beforeTest {
-        clearMocks(userService, flowEngine, flowStateService, chatService)
+        clearMocks(userService, flowEngine, flowStateService, chatService, groupPlacesService)
     }
 
     should("передавать сообщения активному флоу") {
@@ -213,6 +215,7 @@ class ReceiverServiceImplTest : ShouldSpec({
             every { message } returns telegramMessage
         }
         every { userService.createOrUpdateUser(telegramUser) } returns mockk(relaxed = true)
+        every { flowStateService.findListFlow(401L) } returns null
 
         service.execute(update)
 
@@ -294,5 +297,84 @@ class ReceiverServiceImplTest : ShouldSpec({
 
         verify { chatService.setActive(-8L, false) }
         verify(exactly = 0) { chatService.linkUser(any(), any()) }
+    }
+
+    should("hand a nearby location reply from a group to the group service") {
+        val groupChat = mockk<Chat> {
+            every { isUserChat } returns false
+            every { id } returns -9L
+            every { type } returns "supergroup"
+        }
+        val telegramMessage = mockk<Message> {
+            every { chat } returns groupChat
+            every { migrateToChatId } returns null
+            every { messageId } returns 80
+        }
+        every { groupPlacesService.handleMessage(telegramMessage) } returns true
+        val update = mockk<Update> {
+            every { hasCallbackQuery() } returns false
+            every { hasMessage() } returns true
+            every { message } returns telegramMessage
+        }
+
+        service.execute(update)
+
+        verify { groupPlacesService.handleMessage(telegramMessage) }
+        verify(exactly = 0) { flowEngine.onMessage(any(), any(), any(), any()) }
+    }
+
+    should("route group callbacks to the group service and never start a flow") {
+        val groupChat = mockk<Chat> {
+            every { isUserChat } returns false
+            every { id } returns -9L
+        }
+        val telegramUser = mockk<TgUser>(relaxed = true) { every { id } returns 501L }
+        val callbackMessage = mockk<Message> { every { chat } returns groupChat }
+        val callbackQueryMock = mockk<CallbackQuery> {
+            every { from } returns telegramUser
+            every { message } returns callbackMessage
+            every { data } returns "{\"flow\":\"GP\",\"data\":\"P:1\"}"
+            every { id } returns "cb"
+        }
+        val update = mockk<Update> {
+            every { hasCallbackQuery() } returns true
+            every { callbackQuery } returns callbackQueryMock
+        }
+        every { userService.createOrUpdateUser(telegramUser) } returns mockk(relaxed = true)
+
+        service.execute(update)
+
+        verify { groupPlacesService.onCallback(callbackQueryMock, "P:1") }
+        verify(exactly = 0) { flowEngine.start(any(), any(), any(), any()) }
+        verify { chatService.linkUser(501L, -9L) }
+    }
+
+    should("pass chat_shared to the active flow after linking the chat") {
+        val telegramUser = mockk<TgUser>(relaxed = true) { every { id } returns 403L }
+        val shared = mockk<ChatShared> {
+            every { chatId } returns -1003L
+            every { title } returns "Work"
+        }
+        val telegramMessage = mockk<Message> {
+            every { chat } returns privateChat
+            every { chatShared } returns shared
+            every { from } returns telegramUser
+            every { messageId } returns 71
+        }
+        val update = mockk<Update> {
+            every { hasCallbackQuery() } returns false
+            every { hasMessage() } returns true
+            every { message } returns telegramMessage
+        }
+        every { userService.createOrUpdateUser(telegramUser) } returns mockk(relaxed = true)
+        every { userService.getUser(403L) } returns null
+        every { flowStateService.findListFlow(403L) } returns FlowState(userId = 403L, flowKey = "PUBLISH", stepKey = "groups")
+        every { flowEngine.onMessage(FlowKey("PUBLISH"), telegramUser, any(), telegramMessage) } returns true
+
+        service.execute(update)
+
+        verify { chatService.registerSharedChat(-1003L, "Work") }
+        verify { chatService.linkUser(403L, -1003L) }
+        verify { flowEngine.onMessage(FlowKey("PUBLISH"), telegramUser, any(), telegramMessage) }
     }
 })

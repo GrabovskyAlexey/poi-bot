@@ -19,6 +19,9 @@ import ru.grabovsky.poibot.service.NearbySearchServiceImpl
 import ru.grabovsky.poibot.service.PlaceMatchingServiceImpl
 import ru.grabovsky.poibot.service.SavedPlaceServiceImpl
 import ru.grabovsky.poibot.service.interfaces.SavedPlaceDraft
+import ru.grabovsky.poibot.service.ChatServiceImpl
+import ru.grabovsky.poibot.service.PublishServiceImpl
+import ru.grabovsky.poibot.service.interfaces.ChatMembershipChecker
 
 /**
  * Интеграционные проверки на реальном Postgres (Liquibase-миграции, запросы, каскады).
@@ -45,6 +48,12 @@ class PlaceRepositoriesIT {
 
     @Autowired
     lateinit var chatRepository: ChatRepository
+
+    @Autowired
+    lateinit var userChatRepository: UserChatRepository
+
+    @Autowired
+    lateinit var savedPlaceChatRepository: SavedPlaceChatRepository
 
     private fun owner(id: Long) = em.persistAndFlush(User(id, "Test", null, "test$id"))
 
@@ -126,6 +135,94 @@ class PlaceRepositoriesIT {
             "select count(*) from poi_bot.user_chat where chat_id = -1001"
         ).singleResult as Number
         count.toInt() shouldBe 1
+    }
+
+    private fun publishService() = PublishServiceImpl(
+        ChatServiceImpl(chatRepository, userChatRepository),
+        chatRepository,
+        userChatRepository,
+        savedPlaceRepository,
+        savedPlaceChatRepository,
+        object : ChatMembershipChecker {
+            override fun isMember(chatId: Long, userId: Long): Boolean? = true
+            override fun isAdmin(chatId: Long, userId: Long): Boolean = false
+        },
+    )
+
+    private fun group(id: Long, userId: Long) {
+        em.persistAndFlush(Chat(id = id, type = "supergroup", title = "Group $id"))
+        em.entityManager.createNativeQuery(
+            "insert into poi_bot.user_chat (user_id, chat_id) values ($userId, $id)"
+        ).executeUpdate()
+    }
+
+    @Test
+    fun shouldPublishRecordsAndShowThemOnlyInThatChat() {
+        owner(1L)
+        group(-10L, 1L)
+        group(-20L, 1L)
+        val records = saved()
+        val first = records.create(1L, SavedPlaceDraft(name = "Опубликовано", lat = 55.7500, lon = 37.6200))
+        val second = records.create(1L, SavedPlaceDraft(name = "Личное", lat = 55.7501, lon = 37.6201))
+        em.flush()
+        em.clear()
+        val publish = publishService()
+
+        publish.setPublished(1L, listOf(first.id!!, second.id!!), -10L, true) shouldBe 2
+        publish.setPublished(1L, listOf(second.id!!), -10L, false) shouldBe 1
+        em.flush()
+        em.clear()
+
+        publish.listPublished(-10L, 0, 8).items.map { it.name } shouldBe listOf("Опубликовано")
+        publish.listPublished(-20L, 0, 8).items shouldHaveSize 0
+        publish.getPublished(-10L, second.id!!) shouldBe null
+        publish.publishedCounts(listOf(first.id!!, second.id!!), listOf(-10L, -20L)) shouldBe mapOf(-10L to 1)
+        val nearby = NearbySearchServiceImpl(savedPlaceRepository)
+        nearby.searchInChat(-10L, 55.7500, 37.6200, SearchRadius.M100).points.map { it.place.name } shouldBe
+            listOf("Опубликовано")
+        nearby.searchInChat(-20L, 55.7500, 37.6200, SearchRadius.M100).points shouldHaveSize 0
+    }
+
+    @Test
+    fun shouldRemovePublicationsWhenRecordIsDeletedAndKeepThemOnChatIdChange() {
+        owner(1L)
+        group(-30L, 1L)
+        val record = saved().create(1L, SavedPlaceDraft(name = "Хмель", lat = 55.75, lon = 37.62))
+        em.flush()
+        em.clear()
+        val publish = publishService()
+        publish.setPublished(1L, listOf(record.id!!), -30L, true)
+        em.flush()
+
+        chatRepository.changeId(-30L, -1030L)
+        em.flush()
+        em.clear()
+        publish.listPublished(-1030L, 0, 8).items shouldHaveSize 1
+
+        saved().delete(1L, record.id!!) shouldBe true
+        em.flush()
+        em.clear()
+        savedPlaceChatRepository.count() shouldBe 0
+    }
+
+    @Test
+    fun shouldPageAllPublishedRecordsOfChat() {
+        owner(1L)
+        group(-40L, 1L)
+        val service = saved()
+        val ids = (1..10).map { service.create(1L, SavedPlaceDraft(name = "P$it")).id!! }
+        em.flush()
+        em.clear()
+        val publish = publishService()
+        publish.setPublished(1L, ids, -40L, true)
+        em.flush()
+        em.clear()
+
+        val secondPage = publish.listPublished(-40L, 1, 8)
+        secondPage.totalItems shouldBe 10
+        secondPage.totalPages shouldBe 2
+        secondPage.items shouldHaveSize 2
+        publish.listPublished(-40L, 5, 8).page shouldBe 1
     }
 
     companion object {

@@ -83,6 +83,7 @@ class NearbyFlow(
         state.radiusMeters = savedRadius(message.from.id)
         val actions = listOf(
             DeleteMessageIdAction(message.messageId),
+            DeleteMessageAction(WAIT_BINDING),
             DeleteMessageAction(RESULT_BINDING),
             DeleteMessageAction(CARD_BINDING),
             SendMessageAction(RESULT_BINDING, resultMessage(message.from.id, state, context.locale)),

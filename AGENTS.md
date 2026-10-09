@@ -36,3 +36,9 @@ Kotlin Style Guide, 4 пробела, один публичный класс н�
 - Callback-кнопка к другому flow (например, «Изменить» → `ADD_PLACE`): если у flow нет состояния, `ReceiverServiceImpl` запускает его и передаёт `payload.data` как `FlowStartContext.args`.
 - Поиск рядом всегда идёт по максимальному радиусу (1 км), результат раскладывается по радиусам в `NearbyResult.build`.
 - Тест `PlaceRepositoriesIT` требует Docker (без него пропускается).
+
+## Заметки по реализации (этап 2)
+- Публикация: `saved_place_chat`, `PublishService`. Список групп пользователя собирается кнопкой `KeyboardButtonRequestChat` (сообщение `chat_shared`, flow `PUBLISH`), плюс авто-привязка при добавлении бота и при командах в группе.
+- Группа: `GroupPlacesService` работает без flow-движка, callback-данные имеют `flow = "GP"`; в группе кнопки доступны всем, снять место с группы может владелец или администратор чата (`ChatMembershipChecker`).
+- В группе `/nearby` просит ответить геопозицией на сообщение бота (privacy mode остаётся включённым, нужен селективный ForceReply — для него команда обрабатывается через `processMessage`).
+- Liquibase без `default-schema`: схема создаётся первой миграцией, таблицы указываются с префиксом `poi_bot.`.

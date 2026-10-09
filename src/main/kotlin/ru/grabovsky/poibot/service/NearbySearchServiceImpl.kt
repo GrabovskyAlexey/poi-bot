@@ -2,6 +2,8 @@ package ru.grabovsky.poibot.service
 
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import ru.grabovsky.poibot.entity.SavedPlace
+import ru.grabovsky.poibot.geo.BoundingBox
 import ru.grabovsky.poibot.geo.GeoUtils
 import ru.grabovsky.poibot.geo.NearbyPoint
 import ru.grabovsky.poibot.geo.NearbyResult
@@ -15,10 +17,25 @@ class NearbySearchServiceImpl(
 ) : NearbySearchService {
 
     @Transactional(readOnly = true)
-    override fun searchOwn(ownerId: Long, lat: Double, lon: Double, selected: SearchRadius): NearbyResult {
+    override fun searchOwn(ownerId: Long, lat: Double, lon: Double, selected: SearchRadius): NearbyResult =
+        search(lat, lon, selected) { box ->
+            savedPlaceRepository.findOwnInBox(ownerId, box.minLat, box.maxLat, box.minLon, box.maxLon)
+        }
+
+    @Transactional(readOnly = true)
+    override fun searchInChat(chatId: Long, lat: Double, lon: Double, selected: SearchRadius): NearbyResult =
+        search(lat, lon, selected) { box ->
+            savedPlaceRepository.findPublishedInBox(chatId, box.minLat, box.maxLat, box.minLon, box.maxLon)
+        }
+
+    private fun search(
+        lat: Double,
+        lon: Double,
+        selected: SearchRadius,
+        load: (BoundingBox) -> List<SavedPlace>,
+    ): NearbyResult {
         val maxMeters = SearchRadius.MAX.meters
-        val box = GeoUtils.boundingBox(lat, lon, maxMeters.toDouble())
-        val points = savedPlaceRepository.findOwnInBox(ownerId, box.minLat, box.maxLat, box.minLon, box.maxLon)
+        val points = load(GeoUtils.boundingBox(lat, lon, maxMeters.toDouble()))
             .mapNotNull { place ->
                 val placeLat = place.lat ?: return@mapNotNull null
                 val placeLon = place.lon ?: return@mapNotNull null

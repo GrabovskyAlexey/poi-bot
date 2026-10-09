@@ -124,6 +124,13 @@ class PlacesFlow(
                 buttons += FlowInlineButton("▶", FlowCallbackPayload(key.value, "PAGE:${page.page + 1}"), navRow, 1)
             }
         }
+        if (page.totalItems > 0) {
+            buttons += FlowInlineButton(
+                i18n.i18n("buttons.places.publish_many", locale),
+                FlowCallbackPayload(FlowKeys.PUBLISH.value, "ALL"),
+                row = page.items.size + (if (page.totalPages > 1) 1 else 0),
+            )
+        }
         return key.buildMessage(
             step = PlacesStep.LIST,
             model = PlacesListView(items, page.page + 1, page.totalPages, page.totalItems),

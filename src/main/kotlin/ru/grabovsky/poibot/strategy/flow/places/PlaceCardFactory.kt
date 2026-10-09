@@ -70,6 +70,7 @@ class PlaceCardFactory(
             result += button(owner, "buttons.places.delete", locale, "DELASK:$id", row, 0)
         }
         result += button(owner, "buttons.places.close", locale, "CLOSE", row, 1)
+        result += button(FlowKeys.PUBLISH, "buttons.places.publish", locale, "ONE:$id", row + 1, 0)
         return result
     }
 

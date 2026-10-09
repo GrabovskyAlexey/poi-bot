@@ -9,4 +9,7 @@ interface NearbySearchService {
      * по выбранному радиусу (см. [NearbyResult]).
      */
     fun searchOwn(ownerId: Long, lat: Double, lon: Double, selected: SearchRadius): NearbyResult
+
+    /** То же для записей, опубликованных в группе. */
+    fun searchInChat(chatId: Long, lat: Double, lon: Double, selected: SearchRadius): NearbyResult
 }

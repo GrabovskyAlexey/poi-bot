@@ -518,6 +518,7 @@ class AddPlaceFlow(
             step = AddPlaceStep.SAVED,
             model = SavedView(name, editing),
             parseMode = FlowParseMode.HTML,
+            autoDeleteAfterSeconds = SAVED_VISIBLE_SECONDS,
         )
 
     private fun button(textKey: String, locale: Locale, data: String, row: Int, col: Int) =
@@ -533,5 +534,6 @@ class AddPlaceFlow(
         const val FORM_DESCRIPTION_PREVIEW = 200
         const val CHOICE_PREVIEW = 100
         const val RESOLVE_LABEL_NAME = 30
+        const val SAVED_VISIBLE_SECONDS = 8
     }
 }

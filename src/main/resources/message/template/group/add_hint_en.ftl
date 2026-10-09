@@ -1,0 +1,1 @@
+Places are added in a private chat with the bot, so the group stays clean. Then publish the ones you want to this group: /places → place → "To groups".

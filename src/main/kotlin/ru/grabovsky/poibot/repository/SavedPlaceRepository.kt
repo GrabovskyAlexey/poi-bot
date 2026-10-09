@@ -19,6 +19,35 @@ interface SavedPlaceRepository : JpaRepository<SavedPlace, Long> {
 
     fun countByPlaceId(placeId: Long): Long
 
+    fun findByIdInAndOwnerId(ids: Collection<Long>, ownerId: Long): List<SavedPlace>
+
+    @Query(
+        "select s from SavedPlace s where s.id in " +
+                "(select c.id.savedPlaceId from SavedPlaceChat c where c.id.chatId = :chatId) " +
+                "order by s.createdAt desc, s.id desc",
+        countQuery = "select count(c) from SavedPlaceChat c where c.id.chatId = :chatId"
+    )
+    fun findPublishedInChat(@Param("chatId") chatId: Long, pageable: Pageable): Page<SavedPlace>
+
+    @Query(
+        "select s from SavedPlace s where s.id = :id and s.id in " +
+                "(select c.id.savedPlaceId from SavedPlaceChat c where c.id.chatId = :chatId)"
+    )
+    fun findPublishedInChatById(@Param("chatId") chatId: Long, @Param("id") id: Long): SavedPlace?
+
+    @Query(
+        "select s from SavedPlace s where s.id in " +
+                "(select c.id.savedPlaceId from SavedPlaceChat c where c.id.chatId = :chatId) " +
+                "and s.lat between :minLat and :maxLat and s.lon between :minLon and :maxLon"
+    )
+    fun findPublishedInBox(
+        @Param("chatId") chatId: Long,
+        @Param("minLat") minLat: Double,
+        @Param("maxLat") maxLat: Double,
+        @Param("minLon") minLon: Double,
+        @Param("maxLon") maxLon: Double,
+    ): List<SavedPlace>
+
     /** Предфильтр по прямоугольнику; точное расстояние считает вызывающий код. */
     @Query(
         "select s from SavedPlace s where s.ownerId = :ownerId " +

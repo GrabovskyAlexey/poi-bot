@@ -10,6 +10,8 @@ import ru.grabovsky.poibot.strategy.flow.core.engine.FlowKeys
 import ru.grabovsky.poibot.strategy.flow.core.templating.FlowTemplateRenderer
 import ru.grabovsky.poibot.strategy.flow.nearby.*
 import ru.grabovsky.poibot.strategy.flow.places.*
+import ru.grabovsky.poibot.strategy.flow.publish.*
+import ru.grabovsky.poibot.service.MessageGenerateServiceImpl
 import ru.grabovsky.poibot.strategy.flow.start.StartViewModel
 import java.util.*
 
@@ -112,5 +114,29 @@ class TemplatesRenderTest : ShouldSpec({
         renderer.render(FlowKeys.START, "main", en, StartViewModel("Alex")) shouldContain "Welcome"
         renderer.render(FlowKeys.HELP, "main", ru, null) shouldContain "/nearby"
         renderer.render(FlowKeys.HELP, "main", en, null) shouldContain "/places"
+    }
+
+    should("render publish screens") {
+        val select = SelectView(listOf(SelectItemView(1, "<Хмель>", true), SelectItemView(2, "Бар", false)), 1, 1, 2, 1)
+        val selectText = renderer.render(FlowKeys.PUBLISH, "select", ru, select)
+        selectText shouldContain "☑ 1. &lt;Хмель&gt;"
+        selectText shouldContain "⬜ 2. Бар"
+        renderer.render(FlowKeys.PUBLISH, "select", en, SelectView(emptyList(), 1, 1, 0, 0)) shouldContain "no places"
+
+        val groups = GroupsView(listOf("Хмель", "Бар"), 2, listOf(GroupItemView("Друзья", "all", 2)))
+        renderer.render(FlowKeys.PUBLISH, "groups", ru, groups) shouldContain "…и ещё 2"
+        renderer.render(FlowKeys.PUBLISH, "groups", en, GroupsView(listOf("A"), 0, emptyList())) shouldContain "No groups available"
+        renderer.render(FlowKeys.PUBLISH, "pick", ru, null).isNotBlank() shouldBe true
+        renderer.render(FlowKeys.PUBLISH, "done", en, null) shouldContain "Done"
+    }
+
+    should("render group screens through the shared places view") {
+        val empty = PlacesListView(emptyList(), 1, 1, 0)
+        renderer.render(FlowKeys.PLACES, "list", ru, empty) shouldContain "/add"
+        val text = MessageGenerateServiceImpl(configurer).processTemplate("group/list", empty, ru)
+        text shouldContain "нет опубликованных мест"
+        MessageGenerateServiceImpl(configurer).processTemplate("group/list", PlacesListView(listOf(ListItemView(1, "Хмель", null)), 1, 1, 1), en) shouldContain "Chat places"
+        MessageGenerateServiceImpl(configurer).processTemplate("group/ask_location", null, en) shouldContain "Reply to this message"
+        MessageGenerateServiceImpl(configurer).processTemplate("group/add_hint", null, ru) shouldContain "в личке"
     }
 })

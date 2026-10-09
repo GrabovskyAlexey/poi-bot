@@ -30,10 +30,6 @@ import ru.grabovsky.poibot.strategy.flow.places.*
 import java.util.*
 import org.telegram.telegrambots.meta.api.objects.User as TgUser
 
-private class KeyI18n : I18nService {
-    override fun i18n(code: String, locale: Locale, default: String?, vararg args: Any?) = code
-}
-
 class PlaceFlowsTest : ShouldSpec({
     val locale = Locale.forLanguageTag("ru")
     val tgUser = mockk<TgUser> { every { id } returns 7L }
@@ -79,7 +75,7 @@ class PlaceFlowsTest : ShouldSpec({
             val result = flow.start(FlowStartContext(tgUser, locale))
 
             val send = result.actions.single().shouldBeInstanceOf<SendMessageAction>()
-            send.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:1")
+            send.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:1", "ALL")
         }
 
         should("show pagination buttons only where there is a neighbour page") {
@@ -90,7 +86,7 @@ class PlaceFlowsTest : ShouldSpec({
 
             result.shouldNotBeNull()
             val edit = result.actions.filterIsInstance<EditMessageAction>().single()
-            edit.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:9", "PAGE:0", "PAGE:2")
+            edit.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:9", "PAGE:0", "PAGE:2", "ALL")
         }
 
         should("open a card with a photo as a photo message") {

@@ -4,6 +4,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.telegram.telegrambots.extensions.bots.commandbot.commands.BotCommand
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.chat.Chat
+import org.telegram.telegrambots.meta.api.objects.message.Message
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.UserService
@@ -24,6 +25,15 @@ abstract class AbstractCommand(
         userService.createOrUpdateUser(user)
     }
 
+    /** В группах нужен id сообщения команды (ответ «реплаем» и селективный ForceReply). */
+    override fun processMessage(telegramClient: TelegramClient, message: Message, arguments: Array<out String>) {
+        if (!message.chat.isUserChat) {
+            executeInGroup(message.from, message.chat, message.messageId, arguments)
+            return
+        }
+        super.processMessage(telegramClient, message, arguments)
+    }
+
     override fun execute(
         telegramClient: TelegramClient,
         user: User,
@@ -31,7 +41,7 @@ abstract class AbstractCommand(
         arguments: Array<out String>,
     ) {
         if (!chat.isUserChat) {
-            executeInGroup(user, chat, arguments)
+            executeInGroup(user, chat, null, arguments)
             return
         }
         logger.info { "Process flow ${flowKey.value} for user ${user.userName ?: user.firstName} with id ${user.id}" }
@@ -48,9 +58,9 @@ abstract class AbstractCommand(
 
     /**
      * Команда вызвана в группе. Диалоги в группах не ведём: фиксируем, что пользователь состоит в группе.
-     * Команды чтения для групп переопределяют этот метод (этап 2).
+     * Команды чтения для групп переопределяют этот метод.
      */
-    protected open fun executeInGroup(user: User, chat: Chat, arguments: Array<out String>) {
+    protected open fun executeInGroup(user: User, chat: Chat, messageId: Int?, arguments: Array<out String>) {
         runCatching {
             userService.createOrUpdateUser(user)
             chatService.registerChat(chat)

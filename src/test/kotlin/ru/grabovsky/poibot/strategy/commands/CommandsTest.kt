@@ -9,6 +9,8 @@ import org.telegram.telegrambots.meta.generics.TelegramClient
 import ru.grabovsky.poibot.entity.User
 import ru.grabovsky.poibot.entity.UserProfile
 import ru.grabovsky.poibot.service.interfaces.ChatService
+import ru.grabovsky.poibot.service.interfaces.GroupPlacesService
+import org.telegram.telegrambots.meta.api.objects.message.Message
 import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowEngine
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowKeys
@@ -67,5 +69,43 @@ class CommandsTest : ShouldSpec({
         verify { chatService.registerChat(groupChat) }
         verify { chatService.linkUser(300L, -1001L) }
         verify(exactly = 0) { engine.start(any(), any(), any()) }
+    }
+
+    should("delegate places command in a group to the group service") {
+        val userService = mockk<UserService>(relaxed = true)
+        val engine = mockk<FlowEngine>()
+        val chatService = mockk<ChatService>(relaxed = true)
+        val groupService = mockk<GroupPlacesService>(relaxed = true)
+        val command = PlacesCommand(userService, engine, chatService, groupService)
+        val tgUser = mockk<TgUser>(relaxed = true) { every { id } returns 310L }
+        val message = mockk<Message> {
+            every { this@mockk.chat } returns groupChat
+            every { from } returns tgUser
+            every { messageId } returns 123
+        }
+
+        command.processMessage(telegramClient, message, emptyArray())
+
+        verify { groupService.showPlaces(groupChat, tgUser, 123) }
+        verify(exactly = 0) { engine.start(any(), any(), any(), any()) }
+    }
+
+    should("ask for location in a group for nearby and show add hint for add") {
+        val groupService = mockk<GroupPlacesService>(relaxed = true)
+        val engine = mockk<FlowEngine>()
+        val tgUser = mockk<TgUser>(relaxed = true) { every { id } returns 311L }
+        val message = mockk<Message> {
+            every { this@mockk.chat } returns groupChat
+            every { from } returns tgUser
+            every { messageId } returns 124
+        }
+
+        NearbyCommand(mockk(relaxed = true), engine, mockk(relaxed = true), groupService)
+            .processMessage(telegramClient, message, emptyArray())
+        AddCommand(mockk(relaxed = true), engine, mockk(relaxed = true), groupService)
+            .processMessage(telegramClient, message, emptyArray())
+
+        verify { groupService.askNearbyLocation(groupChat, tgUser, 124) }
+        verify { groupService.showAddHint(groupChat, tgUser, 124) }
     }
 })

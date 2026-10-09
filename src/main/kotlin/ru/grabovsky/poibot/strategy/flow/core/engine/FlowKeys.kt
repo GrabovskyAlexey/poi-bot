@@ -6,4 +6,5 @@ object FlowKeys {
     val ADD_PLACE = FlowKey("ADD_PLACE")
     val PLACES = FlowKey("PLACES")
     val NEARBY = FlowKey("NEARBY")
+    val PUBLISH = FlowKey("PUBLISH")
 }

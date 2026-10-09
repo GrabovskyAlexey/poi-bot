@@ -11,6 +11,7 @@ import org.telegram.telegrambots.meta.api.objects.message.Message
 import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberUpdated
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.FlowStateService
+import ru.grabovsky.poibot.service.interfaces.GroupPlacesService
 import ru.grabovsky.poibot.service.interfaces.ReceiverService
 import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowCallbackPayload
@@ -27,13 +28,19 @@ class ReceiverServiceImpl(
     private val flowEngine: FlowEngine,
     private val flowStateService: FlowStateService,
     private val chatService: ChatService,
+    private val groupPlacesService: GroupPlacesService,
 ) : ReceiverService {
 
     override fun execute(update: Update) {
-        when {
-            update.hasCallbackQuery() -> processCallback(update.callbackQuery)
-            update.hasMessage() -> processMessage(update.message)
-            update.hasMyChatMember() -> processMyChatMember(update.myChatMember)
+        try {
+            when {
+                update.hasCallbackQuery() -> processCallback(update.callbackQuery)
+                update.hasMessage() -> processMessage(update.message)
+                update.hasMyChatMember() -> processMyChatMember(update.myChatMember)
+            }
+        } catch (error: Exception) {
+            // Без этого ошибка в потоке long polling теряется, и состояние flow молча не сохраняется
+            logger.error(error) { "Failed to process update ${update.updateId}" }
         }
     }
 
@@ -45,10 +52,7 @@ class ReceiverServiceImpl(
         val user = message.from
         logger.debug { "Received: ${TelegramLogUtils.formatMessage(message)}" }
         userService.createOrUpdateUser(user)
-        message.chatShared?.let {
-            processChatShared(user, it)
-            return
-        }
+        message.chatShared?.let { processChatShared(user, it) }
         val flowState = flowStateService.findListFlow(user.id) ?: run {
             logger.debug { "Skip message ${message.messageId} from userId=${user.id}: no active flow" }
             return
@@ -72,9 +76,13 @@ class ReceiverServiceImpl(
         userService.createOrUpdateUser(user)
         val callbackChat = callbackQuery.message?.chat
         if (callbackChat != null && !callbackChat.isUserChat) {
-            // Диалоги ведутся только в личке; в группе кнопки пока обрабатывает отдельный обработчик (этап 2)
+            // Диалоги ведутся только в личке; в группе кнопки обрабатывает GroupPlacesService
             chatService.registerChat(callbackChat)
             chatService.linkUser(user.id, callbackChat.id)
+            val groupPayload = parseFlowPayload(callbackQuery.data)
+            if (groupPayload?.flow == GroupPlacesService.CALLBACK_KEY) {
+                groupPlacesService.onCallback(callbackQuery, groupPayload.data)
+            }
             return
         }
         val payload = parseFlowPayload(callbackQuery.data)
@@ -105,7 +113,8 @@ class ReceiverServiceImpl(
             chatService.migrate(chat.id, newId)
             return
         }
-        // Диалоги в группах не ведём: обычные сообщения игнорируем
+        // Диалоги в группах не ведём; обрабатываем только ответ геопозицией на запрос /nearby
+        if (groupPlacesService.handleMessage(message)) return
         logger.debug { "Skip non-command message ${message.messageId} in chat ${chat.id} (${chat.type})" }
     }
 
