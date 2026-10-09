@@ -1,0 +1,1 @@
+Here you can download all your data as a file or delete it from the bot completely.

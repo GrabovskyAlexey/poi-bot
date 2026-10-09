@@ -8,6 +8,8 @@ import org.telegram.telegrambots.meta.api.objects.message.Message
 import ru.grabovsky.poibot.service.interfaces.*
 import ru.grabovsky.poibot.strategy.flow.core.engine.*
 import ru.grabovsky.poibot.strategy.flow.core.support.*
+import ru.grabovsky.poibot.strategy.flow.places.CardRef
+import ru.grabovsky.poibot.strategy.flow.places.PlaceCardFactory
 import ru.grabovsky.poibot.strategy.flow.places.PlaceFormatter
 import ru.grabovsky.poibot.util.UrlUtils
 import java.util.*
@@ -22,6 +24,7 @@ class AddPlaceFlow(
     private val placeMatchingService: PlaceMatchingService,
     private val formatter: PlaceFormatter,
     private val i18n: I18nService,
+    private val cardFactory: PlaceCardFactory,
     private val meterRegistry: MeterRegistry,
 ) : FlowHandler<AddPlaceState> {
 
@@ -47,7 +50,7 @@ class AddPlaceFlow(
     ): FlowResult<AddPlaceState>? {
         val (command, argument) = parseCallback(data)
         return when (command) {
-            "EDIT" -> onEdit(context, callbackQuery, argument?.toLongOrNull())
+            "EDIT" -> onEdit(context, callbackQuery, argument)
             "FIELD" -> PlaceField.fromCode(argument)?.let { onField(context, callbackQuery, it) }
             "PROMPT" -> onPrompt(context, callbackQuery, argument)
             "PUT" -> PlaceField.fromCode(argument)?.let { onPut(context, callbackQuery, it) }
@@ -118,16 +121,29 @@ class AddPlaceFlow(
     private fun onEdit(
         context: FlowContext<AddPlaceState>,
         callbackQuery: CallbackQuery,
-        id: Long?,
+        argument: String?,
     ): FlowResult<AddPlaceState>? {
-        id ?: return null
+        val parts = argument?.split(':').orEmpty()
+        val id = parts.getOrNull(0)?.toLongOrNull() ?: return null
+        val card = callbackQuery.message?.messageId?.let {
+            CardRef(
+                messageId = it,
+                savedId = id,
+                owner = if (parts.getOrNull(1) == PlaceCardFactory.OWNER_NEARBY) PlaceCardFactory.OWNER_NEARBY else PlaceCardFactory.OWNER_PLACES,
+                distance = parts.getOrNull(2)?.toIntOrNull() ?: 0,
+            )
+        }
         val state = context.state.payload
         if (state.editingId == id) {
+            card?.let { state.card = it }
             return result(state, AddPlaceStep.FORM, listOf(AnswerCallbackAction(callbackQuery.id)))
         }
         val place = savedPlaceService.get(callbackQuery.from.id, id)
             ?: return result(state, AddPlaceStep.FORM, listOf(alert(callbackQuery, "alerts.place.not_found", context.locale)))
-        val fresh = AddPlaceState().also { it.loadFrom(place) }
+        val fresh = AddPlaceState().also {
+            it.loadFrom(place)
+            it.card = card
+        }
         val actions = state.cleanupPromptMessages() + refreshForm(context, context.locale, fresh) +
                 AnswerCallbackAction(callbackQuery.id)
         return result(fresh, AddPlaceStep.FORM, actions)
@@ -312,8 +328,10 @@ class AddPlaceFlow(
             logger.warn { "Place ${state.editingId} not found for owner $ownerId while saving" }
             return result(state, AddPlaceStep.FORM, listOf(alert(callbackQuery, "alerts.place.not_found", locale)))
         }
+        val refreshCard = state.card?.takeIf { editing }?.let { listOf(cardFactory.refreshAction(it, saved, locale)) }.orEmpty()
         val actions = state.cleanupPromptMessages() +
                 EditMessageAction(FORM_BINDING, savedMessage(saved.name, editing)) +
+                refreshCard +
                 AnswerCallbackAction(callbackQuery.id)
         return FlowResult(AddPlaceStep.SAVED.key, state, actions, completed = true)
     }
@@ -532,7 +550,7 @@ class AddPlaceFlow(
         FlowInlineButton(i18n.i18n(textKey, locale), FlowCallbackPayload(key.value, data), row, col)
 
     private fun editIdFrom(args: String?): Long? =
-        args?.takeIf { it.startsWith("EDIT:") }?.removePrefix("EDIT:")?.toLongOrNull()
+        args?.takeIf { it.startsWith("EDIT:") }?.removePrefix("EDIT:")?.substringBefore(':')?.toLongOrNull()
 
     private companion object {
         val logger = KotlinLogging.logger {}

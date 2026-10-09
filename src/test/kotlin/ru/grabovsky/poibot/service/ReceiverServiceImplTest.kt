@@ -21,6 +21,7 @@ import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowCallbackPayload
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowEngine
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowKey
+import ru.grabovsky.poibot.strategy.flow.core.engine.FlowKeys
 import org.telegram.telegrambots.meta.api.objects.User as TgUser
 import ru.grabovsky.poibot.entity.User as BotUser
 
@@ -37,6 +38,32 @@ class ReceiverServiceImplTest : ShouldSpec({
 
     beforeTest {
         clearMocks(userService, flowEngine, flowStateService, chatService, groupPlacesService)
+    }
+
+    should("запускать поиск рядом для геопозиции без активного флоу") {
+        val telegramUser = mockk<TgUser>(relaxed = true) { every { id } returns 102L }
+        val telegramMessage = mockk<Message>(relaxed = true) {
+            every { chat } returns privateChat
+            every { chatShared } returns null
+            every { from } returns telegramUser
+            every { location } returns mockk<org.telegram.telegrambots.meta.api.objects.location.Location> {
+                every { latitude } returns 55.5
+                every { longitude } returns 37.5
+            }
+        }
+        val update = mockk<Update> {
+            every { hasCallbackQuery() } returns false
+            every { hasMessage() } returns true
+            every { message } returns telegramMessage
+        }
+        every { userService.createOrUpdateUser(telegramUser) } returns BotUser(102L, null, null, null)
+        every { userService.getUser(102L) } returns null
+        every { flowStateService.findListFlow(102L) } returns null
+        every { flowEngine.start(any(), any(), any(), any()) } returns true
+
+        service.execute(update)
+
+        verify { flowEngine.start(FlowKeys.NEARBY, telegramUser, any(), "LOC:55.5:37.5") }
     }
 
     should("передавать сообщения активному флоу") {

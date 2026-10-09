@@ -17,6 +17,7 @@ import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowCallbackPayload
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowEngine
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowKey
+import ru.grabovsky.poibot.strategy.flow.core.engine.FlowKeys
 import ru.grabovsky.poibot.util.LocaleUtils
 import ru.grabovsky.poibot.util.TelegramLogUtils
 import java.util.*
@@ -55,6 +56,7 @@ class ReceiverServiceImpl(
         message.chatShared?.let { processChatShared(user, it) }
         val flowState = flowStateService.findListFlow(user.id) ?: run {
             logger.debug { "Skip message ${message.messageId} from userId=${user.id}: no active flow" }
+            searchNearby(user, message)
             return
         }
         val handled = flowEngine.onMessage(
@@ -64,10 +66,17 @@ class ReceiverServiceImpl(
             message
         )
         if (!handled) {
+            searchNearby(user, message)
             logger.debug {
                 "Active flow ${flowState.flowKey} ignored message ${message.messageId} from userId=${user.id}"
             }
         }
+    }
+
+    /** Геопозиция без подходящего диалога - считаем просьбой показать места рядом. */
+    private fun searchNearby(user: User, message: Message) {
+        val location = message.location ?: message.venue?.location ?: return
+        flowEngine.start(FlowKeys.NEARBY, user, resolveLocale(user), "LOC:${location.latitude}:${location.longitude}")
     }
 
     private fun processCallback(callbackQuery: CallbackQuery) {

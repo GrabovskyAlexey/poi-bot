@@ -57,6 +57,23 @@ class CommandsTest : ShouldSpec({
         verify { engine.start(FlowKeys.HELP, tgUser, any()) }
     }
 
+    should("delete the command message in a private chat after processing") {
+        val userService = mockk<UserService>(relaxed = true)
+        val engine = mockk<FlowEngine>(relaxed = true)
+        val command = HelpCommand(userService, engine, mockk(relaxed = true))
+        val tgUser = mockk<TgUser>(relaxed = true) { every { id } returns 160L }
+        val message = mockk<Message>(relaxed = true) {
+            every { this@mockk.chat } returns chat
+            every { from } returns tgUser
+            every { messageId } returns 5
+            every { chatId } returns 160L
+        }
+
+        command.processMessage(telegramClient, message, emptyArray())
+
+        verify { telegramClient.execute(match<org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage> { it.messageId == 5 }) }
+    }
+
     should("only register chat and link user when command is used in a group") {
         val userService = mockk<UserService>(relaxed = true)
         val engine = mockk<FlowEngine>()

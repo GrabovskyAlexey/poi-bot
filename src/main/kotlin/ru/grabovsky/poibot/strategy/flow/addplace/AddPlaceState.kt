@@ -3,6 +3,7 @@ package ru.grabovsky.poibot.strategy.flow.addplace
 import ru.grabovsky.poibot.entity.SavedPlace
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowStep
 import ru.grabovsky.poibot.strategy.flow.core.support.PromptState
+import ru.grabovsky.poibot.strategy.flow.places.CardRef
 
 enum class AddPlaceStep(override val key: String) : FlowStep {
     FORM("form"),
@@ -52,6 +53,8 @@ data class AddPlaceState(
     var pendingMessageId: Int? = null,
     var candidates: MutableList<CandidateDto> = mutableListOf(),
     var resolveStrong: Boolean = false,
+    /** Карточка, из которой открыто редактирование: после сохранения её перерисовываем. */
+    var card: CardRef? = null,
     override val promptBindings: MutableList<String> = mutableListOf(),
 ) : PromptState {
 

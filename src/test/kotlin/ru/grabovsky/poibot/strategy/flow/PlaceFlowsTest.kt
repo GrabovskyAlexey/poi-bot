@@ -198,10 +198,23 @@ class PlaceFlowsTest : ShouldSpec({
             val result = flow.onMessage(ctx(NearbyState()), locationMessage())
 
             result.shouldNotBeNull()
-            val send = result.actions.filterIsInstance<SendMessageAction>().single()
+            val sends = result.actions.filterIsInstance<SendMessageAction>()
+            sends.first().message.removeReplyKeyboard shouldBe true
+            val send = sends.last()
             send.message.inlineButtons.map { it.payload.data } shouldBe
                     listOf("OPEN:80", "R:500", "R:1000", "RADIUS")
             result.actions.shouldContain(DeleteMessageIdAction(77))
+        }
+
+        should("show results at once when started with coordinates") {
+            every { userService.getUser(7L) } returns entityUser
+            every { search.searchOwn(7L, 55.0, 37.0, any()) } returns NearbyResult.build(emptyList(), SearchRadius.M250)
+
+            val result = flow.start(FlowStartContext(tgUser, locale, "LOC:55.0:37.0"))
+
+            result.stepKey shouldBe "result"
+            result.payload.lat shouldBe 55.0
+            result.actions.single().shouldBeInstanceOf<SendMessageAction>()
         }
 
         should("persist the radius chosen by the user") {

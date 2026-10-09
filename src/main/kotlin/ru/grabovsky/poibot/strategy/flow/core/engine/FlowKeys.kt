@@ -10,4 +10,5 @@ object FlowKeys {
     val SHARED = FlowKey("SHARED")
     val REVIEWS = FlowKey("REVIEWS")
     val RELINK = FlowKey("RELINK")
+    val DELETE_ME = FlowKey("DELETE_ME")
 }

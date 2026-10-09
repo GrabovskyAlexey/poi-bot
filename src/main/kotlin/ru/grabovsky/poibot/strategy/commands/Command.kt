@@ -9,5 +9,6 @@ enum class Command(
     ADD("add", "➕ Добавить место", 2),
     PLACES("places", "📍 Мои места", 3),
     NEARBY("nearby", "🧭 Найти рядом", 4),
+    DELETE_ME("deleteme", "🗑 Удалить мои данные", 90),
     HELP("help", "❓ Помощь", 99);
 }
