@@ -12,6 +12,7 @@ import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import ru.grabovsky.poibot.config.BotConfig
+import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.ReceiverService
 import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.commands.AbstractCommand
@@ -25,9 +26,10 @@ class BotTest : ShouldSpec({
     val receiverService = mockk<ReceiverService>(relaxed = true)
     val userService = mockk<UserService>(relaxed = true)
     val flowEngine = mockk<FlowEngine>(relaxed = true)
+    val chatService = mockk<ChatService>(relaxed = true)
 
-    val firstCommand = object : AbstractCommand(Command.HELP, FlowKeys.HELP, userService, flowEngine) {}
-    val secondCommand = object : AbstractCommand(Command.START, FlowKeys.START, userService, flowEngine) {}
+    val firstCommand = object : AbstractCommand(Command.HELP, FlowKeys.HELP, userService, flowEngine, chatService) {}
+    val secondCommand = object : AbstractCommand(Command.START, FlowKeys.START, userService, flowEngine, chatService) {}
 
     should("set bot commands sorted by order and expose token") {
         val commandSlot = slot<SetMyCommands>()
