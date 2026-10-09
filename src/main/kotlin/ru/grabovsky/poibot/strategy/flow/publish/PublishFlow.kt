@@ -27,6 +27,8 @@ data class PublishState(
     var page: Int = 0,
     var selected: MutableList<Long> = mutableListOf(),
     var groups: MutableList<GroupDto> = mutableListOf(),
+    /** true сразу после запуска по callback без состояния: ближайший callback ALL/ONE уже учтён в start(). */
+    var fresh: Boolean = false,
 ) {
     companion object {
         const val MODE_SELECT = "select"
@@ -34,7 +36,13 @@ data class PublishState(
     }
 }
 
-data class SelectItemView(val index: Int, val name: String, val selected: Boolean)
+data class SelectItemView(
+    val index: Int,
+    val name: String,
+    val selected: Boolean,
+    val hasLocation: Boolean = false,
+    val hasPhoto: Boolean = false,
+)
 
 /** Модель шаблона `publish/select`. */
 data class SelectView(val items: List<SelectItemView>, val page: Int, val totalPages: Int, val total: Long, val selectedCount: Int)
@@ -61,7 +69,7 @@ class PublishFlow(
     override fun start(context: FlowStartContext): FlowResult<PublishState> {
         val userId = context.user.id
         val locale = context.locale
-        val state = PublishState()
+        val state = PublishState(fresh = context.args != null)
         val oneId = oneIdFrom(context.args)
         if (oneId != null && savedPlaceService.get(userId, oneId) != null) {
             enterGroups(state, userId, listOf(oneId), single = true)
@@ -109,7 +117,8 @@ class PublishFlow(
 
         val actions: List<FlowAction> = when (command) {
             "ALL" -> {
-                if (state.mode == PublishState.MODE_SELECT && state.selected.isEmpty() && state.page == 0 && !state.single) {
+                if (state.fresh) {
+                    state.fresh = false
                     listOf(answer)
                 } else {
                     resetToSelect(state)
@@ -120,7 +129,8 @@ class PublishFlow(
 
             "ONE" -> {
                 val id = argument?.toLongOrNull() ?: return null
-                if (state.mode == PublishState.MODE_GROUPS && state.single && state.selected == listOf(id)) {
+                if (state.fresh) {
+                    state.fresh = false
                     listOf(answer)
                 } else {
                     savedPlaceService.get(userId, id) ?: return notFound(state, callbackQuery, locale)
@@ -262,7 +272,10 @@ class PublishFlow(
         val page = savedPlaceService.list(userId, state.page, PAGE_SIZE)
         state.page = page.page
         val items = page.items.mapIndexed { index, place ->
-            SelectItemView(page.page * PAGE_SIZE + index + 1, place.name, place.id in state.selected)
+            SelectItemView(
+                page.page * PAGE_SIZE + index + 1, place.name, place.id in state.selected,
+                hasLocation = place.hasLocation(), hasPhoto = place.photoFileId != null,
+            )
         }
         val buttons = mutableListOf<FlowInlineButton>()
         page.items.forEachIndexed { index, place ->
@@ -281,7 +294,7 @@ class PublishFlow(
                 i18n.i18n("buttons.publish.next", locale, null, state.selected.size), payload("NEXT"), row++,
             )
         }
-        buttons += FlowInlineButton(i18n.i18n("buttons.common.cancel", locale), payload("CANCEL"), row)
+        buttons += FlowInlineButton(i18n.i18n("buttons.common.cancel", locale), payload("CANCEL"), FlowInlineButton.LAST_ROW)
         return key.buildMessage(
             step = PublishStep.SELECT,
             model = SelectView(items, page.page + 1, page.totalPages, page.totalItems, state.selected.size),

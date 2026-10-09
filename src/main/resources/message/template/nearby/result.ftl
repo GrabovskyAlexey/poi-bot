@@ -6,5 +6,5 @@ ${p.index}. <b>${p.name?html}</b> — ${p.distanceText}
 </#if></#if><#if data.hints?size gt 0>
 
 <#list data.hints as h>
-🔎 до ${h.radiusText} ещё +${h.extra} (всего ${h.total})
+🔎 В радиусе ${h.radiusText} — ещё ${h.extra} (всего ${h.total})
 </#list></#if></#if>

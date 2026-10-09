@@ -55,3 +55,15 @@ data class SendVenueAction(
     val latitude: Double,
     val longitude: Double,
 ) : FlowAction
+
+/**
+ * Перерисовывает уже отправленное сообщение-карточку по его id (когда id не хранится в привязках flow).
+ * [caption] = true для карточек с фото (правится подпись, иначе текст). Ошибки правки не критичны.
+ */
+data class EditCardAction(
+    val messageId: Int,
+    val message: FlowMessage,
+    val caption: Boolean,
+) : FlowAction {
+    override val bindingKey: String? = null
+}

@@ -32,6 +32,7 @@ import ru.grabovsky.poibot.geo.NearbyResult
 import ru.grabovsky.poibot.geo.SearchRadius
 import ru.grabovsky.poibot.service.interfaces.*
 import ru.grabovsky.poibot.strategy.flow.KeyI18n
+import io.kotest.matchers.collections.shouldContain
 import ru.grabovsky.poibot.strategy.flow.places.PlaceFormatter
 import java.io.Serializable
 import org.telegram.telegrambots.meta.api.objects.User as TgUser
@@ -42,6 +43,10 @@ class GroupPlacesServiceImplTest : ShouldSpec({
     val userService = mockk<UserService>(relaxed = true)
     val chatService = mockk<ChatService>(relaxed = true)
     val publishService = mockk<PublishService>()
+    val reviewService = mockk<ReviewService> {
+        every { summary(any()) } returns RatingSummary.EMPTY
+        every { commentCount(any()) } returns 0
+    }
     val nearbySearchService = mockk<NearbySearchService>()
     val i18n = KeyI18n()
     val freeMarker = FreeMarkerConfigurer().apply {
@@ -50,7 +55,7 @@ class GroupPlacesServiceImplTest : ShouldSpec({
         afterPropertiesSet()
     }
     val service = GroupPlacesServiceImpl(
-        telegramClient, BotConfig("token", "PoiBot"), userService, chatService, publishService,
+        telegramClient, BotConfig("token", "PoiBot"), userService, chatService, publishService, reviewService,
         nearbySearchService, MessageGenerateServiceImpl(freeMarker), PlaceFormatter(i18n), i18n,
     )
 
@@ -270,5 +275,35 @@ class GroupPlacesServiceImplTest : ShouldSpec({
 
             executed.filterIsInstance<DeleteMessage>().single().messageId shouldBe 10
         }
+    }
+
+    should("show comments read-only in a group and page by editing the message") {
+        val now = java.time.Instant.parse("2026-10-12T10:00:00Z")
+        every { reviewService.comments(77L, 0L, 0, any()) } returns CommentsPage(
+            listOf(CommentItem(1L, "Отлично", now, false)), 0, 2, 6,
+        )
+        every { reviewService.comments(77L, 0L, 1, any()) } returns CommentsPage(
+            listOf(CommentItem(2L, "Дорого", now, false)), 1, 2, 6,
+        )
+
+        service.onCallback(callbackOf("CM:77:0"), "CM:77:0")
+        service.onCallback(callbackOf("CMP:77:1"), "CMP:77:1")
+
+        val sent = executed.filterIsInstance<SendMessage>().single()
+        sent.text shouldContain "Отлично"
+        sent.text shouldContain "Комментарии"
+        sent.replyToMessageId shouldBe 10
+        markupData(sent.replyMarkup).map { it.substringAfter("\"data\":\"").substringBefore("\"") } shouldBe listOf("CMP:77:1", "C")
+        executed.filterIsInstance<EditMessageText>().single().text shouldContain "Дорого"
+    }
+
+    should("add a comments button to a group card when comments exist") {
+        every { publishService.getPublished(-100L, 1L) } returns place(1)
+        every { reviewService.commentCount(1L) } returns 2
+
+        service.onCallback(callbackOf("O:1"), "O:1")
+
+        val sent = executed.filterIsInstance<SendMessage>().single()
+        markupData(sent.replyMarkup).map { it.substringAfter("\"data\":\"").substringBefore("\"") } shouldContain "CM:1:0"
     }
 })

@@ -196,4 +196,36 @@ class PublishFlowTest : ShouldSpec({
 
         flow.onMessage(ctx(PublishState()), message) shouldBe null
     }
+
+    should("open a fresh selection screen on repeated Publish-to-groups presses") {
+        val state = PublishState(selected = mutableListOf(1L), page = 1)
+
+        val result = flow.onCallback(ctx(state), callback(), "ALL")
+
+        result.shouldNotBeNull()
+        state.selected shouldBe emptyList()
+        state.page shouldBe 0
+        result.actions.shouldContain(DeleteMessageAction("main"))
+        result.actions.filterIsInstance<SendMessageAction>().single().bindingKey shouldBe "main"
+    }
+
+    should("skip re-rendering for the callback that follows a restart") {
+        val started = flow.start(FlowStartContext(tgUser, locale, "ALL"))
+        started.payload.fresh shouldBe true
+
+        val result = flow.onCallback(ctx(started.payload), callback(), "ALL")
+
+        result.shouldNotBeNull().actions.filterIsInstance<SendMessageAction>().size shouldBe 0
+        started.payload.fresh shouldBe false
+    }
+
+    should("reopen groups for another place when ONE is pressed in an existing flow") {
+        val state = groupState(1L, single = true)
+
+        val result = flow.onCallback(ctx(state), callback(), "ONE:2")
+
+        result.shouldNotBeNull()
+        state.selected shouldBe listOf(2L)
+        result.actions.filterIsInstance<SendMessageAction>().map { it.bindingKey } shouldBe listOf("main", "pick")
+    }
 })

@@ -11,7 +11,13 @@ import java.util.*
 
 data class PlacesState(var page: Int = 0)
 
-data class ListItemView(val index: Int, val name: String, val address: String?)
+data class ListItemView(
+    val index: Int,
+    val name: String,
+    val address: String?,
+    val hasLocation: Boolean = false,
+    val hasPhoto: Boolean = false,
+)
 
 /** Модель шаблона `places/list`. */
 data class PlacesListView(val items: List<ListItemView>, val page: Int, val totalPages: Int, val total: Long)
@@ -108,7 +114,10 @@ class PlacesFlow(
         val page = savedPlaceService.list(userId, state.page, PAGE_SIZE)
         state.page = page.page
         val items = page.items.mapIndexed { index, place ->
-            ListItemView(page.page * PAGE_SIZE + index + 1, place.name, formatter.shorten(place.address, ADDRESS_PREVIEW))
+            ListItemView(
+                page.page * PAGE_SIZE + index + 1, place.name, formatter.shorten(place.address, ADDRESS_PREVIEW),
+                hasLocation = place.hasLocation(), hasPhoto = place.photoFileId != null,
+            )
         }
         val buttons = mutableListOf<FlowInlineButton>()
         page.items.forEachIndexed { index, place ->

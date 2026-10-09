@@ -96,4 +96,19 @@ class ReplyKeyboardValidationTest : ShouldSpec({
             scheduler.schedule(any<Runnable>(), 3L, java.util.concurrent.TimeUnit.SECONDS)
         }
     }
+
+    should("build a url button that passes client-side validation and carries no callback data") {
+        every { client.execute(capture(sent)) } returns mockk<Message> { every { messageId } returns 1 }
+        val message = FlowMessage(
+            FlowKeys.SHARED, "out",
+            inlineButtons = listOf(FlowInlineButton.link("share", "https://t.me/share/url?url=x"), FlowInlineButton("close", FlowCallbackPayload("SHARED", "CLOSE"), 0, 1)),
+        )
+        executor.execute(user, Locale.ROOT, emptyMap(), listOf(SendMessageAction("main", message)))
+
+        sent.captured.validate()
+        val row = (sent.captured.replyMarkup as org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup).keyboard.single()
+        row[0].url shouldBe "https://t.me/share/url?url=x"
+        row[0].callbackData shouldBe null
+        row[1].callbackData shouldBe "{\"flow\":\"SHARED\",\"data\":\"CLOSE\"}"
+    }
 })

@@ -24,13 +24,13 @@ class MessagesConsistencyTest : ShouldSpec({
 
     should("not contain several keys glued into one value") {
         val glued = listOf(ru, en).flatMap { props ->
-            props.stringPropertyNames().filter { Regex("(buttons|alerts|unit)\\.[a-z_.]+=").containsMatchIn(props.getProperty(it)) }
+            props.stringPropertyNames().filter { Regex("(buttons|alerts|unit|notices)\\.[a-z_.]+=").containsMatchIn(props.getProperty(it)) }
         }
         glued.shouldBeEmpty()
     }
 
     should("define every message key used in the source code") {
-        val keyPattern = Regex("\"((?:buttons|alerts|unit)\\.[a-z_]+(?:\\.[a-z_]+)*)\"")
+        val keyPattern = Regex("\"((?:buttons|alerts|unit|notices)\\.[a-z_]+(?:\\.[a-z_]+)*)\"")
         val sources = Path.of("src/main/kotlin")
         val used = Files.walk(sources).use { stream ->
             stream.filter { it.toString().endsWith(".kt") }.toList()

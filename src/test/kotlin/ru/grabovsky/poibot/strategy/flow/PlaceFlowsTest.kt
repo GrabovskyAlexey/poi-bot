@@ -35,7 +35,13 @@ class PlaceFlowsTest : ShouldSpec({
     val tgUser = mockk<TgUser> { every { id } returns 7L }
     val i18n = KeyI18n()
     val formatter = PlaceFormatter(i18n)
-    val cardFactory = PlaceCardFactory(i18n, formatter)
+    val reviewService = mockk<ReviewService>(relaxed = true) {
+        every { summary(any()) } returns RatingSummary.EMPTY
+        every { commentCount(any()) } returns 0
+        every { userComment(any(), any()) } returns null
+    }
+    val placeLinkService = mockk<PlaceLinkService>(relaxed = true) { every { candidatesFor(any(), any()) } returns emptyList() }
+    val cardFactory = PlaceCardFactory(i18n, formatter, reviewService, placeLinkService)
 
     fun callback(): CallbackQuery = mockk {
         every { id } returns "cb"
@@ -78,7 +84,22 @@ class PlaceFlowsTest : ShouldSpec({
             send.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:1", "ALL")
         }
 
-        should("show pagination buttons only where there is a neighbour page") {
+        should("mark places that have a location or a photo in the list") {
+        every { service.list(7L, 0, any()) } returns SavedPlacePage(
+            listOf(
+                place(1, "Полное", photo = "p"),
+                place(2, "Без геопозиции").copy(lat = null, lon = null),
+            ),
+            0, 1, 2,
+        )
+
+        val send = flow.start(FlowStartContext(tgUser, locale)).actions.single() as SendMessageAction
+
+        val view = send.message.model as PlacesListView
+        view.items.map { it.hasLocation to it.hasPhoto } shouldBe listOf(true to true, false to false)
+    }
+
+    should("show pagination buttons only where there is a neighbour page") {
             every { service.list(7L, 1, any()) } returns
                     SavedPlacePage(listOf(place(9, "A")), 1, 3, 17)
 
@@ -208,5 +229,68 @@ class PlaceFlowsTest : ShouldSpec({
 
             flow.onMessage(ctx(NearbyState()), message) shouldBe null
         }
+    }
+
+    should("show the comments button and rating only when reviews exist") {
+        every { reviewService.summary(1L) } returns RatingSummary(4.5, 2)
+        every { reviewService.commentCount(1L) } returns 3
+        every { placeLinkService.candidatesFor(7L, 1L) } returns listOf(PlaceCandidate(2L, "Другое", null, 30, 0.1))
+        val card = place(1)
+
+        val actions = cardFactory.cardActions(FlowKeys.PLACES, card.copy(ownerId = 7L), locale, "card", manage = true)
+
+        val send = actions.single() as SendMessageAction
+        val data = send.message.inlineButtons.map { it.payload.flow to it.payload.data }
+        data shouldContain ("REVIEWS" to "RATE:1:P:0")
+        data shouldContain ("REVIEWS" to "ADDC:1:P:0")
+        data shouldContain ("REVIEWS" to "COM:1:0:1:P:0")
+        data shouldContain ("RELINK" to "OPEN:1:P:0")
+        (send.message.model as PlaceCardView).rating shouldBe "4.5 (2)"
+    }
+
+    should("switch the comment button to editing when the user already commented") {
+        every { reviewService.summary(1L) } returns RatingSummary.EMPTY
+        every { reviewService.commentCount(1L) } returns 1
+        every { reviewService.userComment(1L, 7L) } returns CommentItem(8L, "мой", null, true)
+        every { placeLinkService.candidatesFor(7L, 1L) } returns emptyList()
+
+        val actions = cardFactory.cardActions(FlowKeys.PLACES, place(1).copy(ownerId = 7L), locale, "card", manage = true)
+
+        val buttons = (actions.single() as SendMessageAction).message.inlineButtons
+        buttons.map { it.text } shouldContain "buttons.reviews.comment_edit"
+        buttons.map { it.text }.contains("buttons.reviews.comment") shouldBe false
+    }
+
+    should("keep delete and close in the very last row whatever rows are added above") {
+        every { reviewService.summary(1L) } returns RatingSummary(4.0, 1)
+        every { reviewService.commentCount(1L) } returns 2
+        every { reviewService.userComment(1L, 7L) } returns null
+        every { placeLinkService.candidatesFor(7L, 1L) } returns listOf(PlaceCandidate(2L, "Другое", null, 30, 0.1))
+
+        val manage = cardFactory.cardActions(FlowKeys.PLACES, place(1).copy(ownerId = 7L), locale, "card", manage = true)
+        val nearby = cardFactory.cardActions(FlowKeys.NEARBY, place(1).copy(ownerId = 7L), locale, "card", manage = false)
+
+        listOf(manage, nearby).forEach { actions ->
+            val buttons = (actions.single() as SendMessageAction).message.inlineButtons
+            val lastRow = buttons.maxOf { it.row }
+            lastRow shouldBe FlowInlineButton.LAST_ROW
+            val bottom = buttons.filter { it.row == lastRow }.map { it.payload.data.substringBefore(":") }
+            bottom.all { it == "DELASK" || it == "CLOSE" } shouldBe true
+            buttons.filter { it.row < lastRow }.none { it.payload.data == "CLOSE" || it.payload.data.startsWith("DELASK") } shouldBe true
+        }
+        val manageBottom = (manage.single() as SendMessageAction).message.inlineButtons.filter { it.row == FlowInlineButton.LAST_ROW }
+        manageBottom.map { it.payload.data.substringBefore(":") } shouldBe listOf("DELASK", "CLOSE")
+    }
+
+    should("hide comments and relink buttons when there is nothing to show") {
+        every { reviewService.summary(1L) } returns RatingSummary.EMPTY
+        every { reviewService.commentCount(1L) } returns 0
+        every { placeLinkService.candidatesFor(7L, 1L) } returns emptyList()
+
+        val actions = cardFactory.cardActions(FlowKeys.PLACES, place(1).copy(ownerId = 7L), locale, "card", manage = true)
+
+        val data = (actions.single() as SendMessageAction).message.inlineButtons.map { it.payload.data }
+        data.none { it.startsWith("COM:") || it.startsWith("OPEN:") } shouldBe true
+        data shouldContain "RATE:1:P:0"
     }
 })

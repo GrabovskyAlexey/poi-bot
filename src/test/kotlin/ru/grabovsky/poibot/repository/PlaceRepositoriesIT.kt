@@ -20,6 +20,16 @@ import ru.grabovsky.poibot.service.PlaceMatchingServiceImpl
 import ru.grabovsky.poibot.service.SavedPlaceServiceImpl
 import ru.grabovsky.poibot.service.interfaces.SavedPlaceDraft
 import ru.grabovsky.poibot.service.ChatServiceImpl
+import ru.grabovsky.poibot.service.SharingServiceImpl
+import ru.grabovsky.poibot.service.interfaces.AcceptResult
+import ru.grabovsky.poibot.service.interfaces.AddCommentResult
+import ru.grabovsky.poibot.service.interfaces.RateResult
+import ru.grabovsky.poibot.service.interfaces.RatingSummary
+import ru.grabovsky.poibot.service.interfaces.RelinkResult
+import ru.grabovsky.poibot.service.interfaces.ReportResult
+import ru.grabovsky.poibot.service.PlaceLinkServiceImpl
+import ru.grabovsky.poibot.service.ReviewServiceImpl
+import io.kotest.matchers.types.shouldBeInstanceOf
 import ru.grabovsky.poibot.service.PublishServiceImpl
 import ru.grabovsky.poibot.service.interfaces.ChatMembershipChecker
 
@@ -54,6 +64,18 @@ class PlaceRepositoriesIT {
 
     @Autowired
     lateinit var savedPlaceChatRepository: SavedPlaceChatRepository
+
+    @Autowired
+    lateinit var placeShareTokenRepository: PlaceShareTokenRepository
+
+    @Autowired
+    lateinit var placeRatingRepository: PlaceRatingRepository
+
+    @Autowired
+    lateinit var placeCommentRepository: PlaceCommentRepository
+
+    @Autowired
+    lateinit var placeCommentReportRepository: PlaceCommentReportRepository
 
     private fun owner(id: Long) = em.persistAndFlush(User(id, "Test", null, "test$id"))
 
@@ -223,6 +245,196 @@ class PlaceRepositoriesIT {
         secondPage.totalPages shouldBe 2
         secondPage.items shouldHaveSize 2
         publish.listPublished(-40L, 5, 8).page shouldBe 1
+    }
+
+    @Test
+    fun shouldShareRecordAndCopyItToAnotherUserKeepingTheSamePlace() {
+        owner(1L)
+        owner(2L)
+        val records = saved()
+        val original = records.create(1L, SavedPlaceDraft(name = "Хмель", description = "Крафт", lat = 55.75, lon = 37.62))
+        em.flush()
+        em.clear()
+        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records)
+
+        val token = sharing.getOrCreateToken(1L, original.id!!)!!
+
+        sharing.getOrCreateToken(1L, original.id!!) shouldBe token
+        sharing.getOrCreateToken(2L, original.id!!) shouldBe null
+        val result = sharing.accept(2L, token)
+        result.shouldBeInstanceOf<AcceptResult.Saved>()
+        em.flush()
+        em.clear()
+
+        val copy = (result as AcceptResult.Saved).place
+        copy.ownerId shouldBe 2L
+        copy.placeId shouldBe original.placeId
+        copy.description shouldBe "Крафт"
+        sharing.accept(2L, token) shouldBe AcceptResult.AlreadySaved
+        sharing.accept(1L, token) shouldBe AcceptResult.OwnPlace
+        placeRepository.count() shouldBe 1
+    }
+
+    @Test
+    fun shouldInvalidateShareLinkWhenRecordIsDeleted() {
+        owner(1L)
+        val records = saved()
+        val original = records.create(1L, SavedPlaceDraft(name = "Удалю"))
+        em.flush()
+        em.clear()
+        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records)
+        val token = sharing.getOrCreateToken(1L, original.id!!)!!
+        em.flush()
+
+        records.delete(1L, original.id!!) shouldBe true
+        em.flush()
+        em.clear()
+
+        sharing.findShared(token) shouldBe null
+        placeShareTokenRepository.count() shouldBe 0
+    }
+
+    private fun reviews() = ReviewServiceImpl(
+        placeRatingRepository, placeCommentRepository, placeCommentReportRepository, savedPlaceRepository,
+    )
+
+    private fun links() = PlaceLinkServiceImpl(
+        savedPlaceRepository, placeRepository, placeRatingRepository, placeCommentRepository,
+        PlaceMatchingServiceImpl(placeRepository),
+    )
+
+    @Test
+    fun shouldShareRatingAndCommentsBetweenUsersOfTheSamePlace() {
+        owner(1L)
+        owner(2L)
+        val records = saved()
+        val first = records.create(1L, SavedPlaceDraft(name = "Хмель", lat = 55.75, lon = 37.62))
+        val second = records.create(2L, SavedPlaceDraft(name = "Бар Хмель"), linkPlaceId = first.placeId)
+        em.flush()
+        em.clear()
+        val service = reviews()
+
+        service.rate(1L, first.id!!, 5) shouldBe RateResult.OK
+        service.rate(2L, second.id!!, 4) shouldBe RateResult.OK
+        service.rate(2L, second.id!!, 3) shouldBe RateResult.OK
+        service.saveComment(1L, first.id!!, "Отличный крафт") shouldBe AddCommentResult.ADDED
+        em.flush()
+        em.clear()
+
+        service.summary(first.placeId).count shouldBe 2
+        service.summary(first.placeId).average shouldBe 4.0
+        service.commentCount(second.placeId) shouldBe 1
+        service.comments(second.placeId, 2L, 0, 5).items.single().mine shouldBe false
+        service.comments(second.placeId, 1L, 0, 5).items.single().mine shouldBe true
+    }
+
+    @Test
+    fun shouldHideCommentAfterEnoughReportsAndExcludeItFromCounts() {
+        (1L..5L).forEach { owner(it) }
+        val records = saved()
+        val record = records.create(1L, SavedPlaceDraft(name = "Хмель"))
+        em.flush()
+        em.clear()
+        val service = reviews()
+        service.saveComment(1L, record.id!!, "Реклама казино") shouldBe AddCommentResult.ADDED
+        em.flush()
+        em.clear()
+        val commentId = service.comments(record.placeId, 1L, 0, 5).items.single().id
+
+        service.report(2L, commentId) shouldBe ReportResult.REPORTED
+        service.report(2L, commentId) shouldBe ReportResult.ALREADY_REPORTED
+        service.report(3L, commentId) shouldBe ReportResult.REPORTED
+        service.commentCount(record.placeId) shouldBe 1
+        service.report(4L, commentId) shouldBe ReportResult.REPORTED
+        em.flush()
+        em.clear()
+
+        service.commentCount(record.placeId) shouldBe 0
+        service.comments(record.placeId, 1L, 0, 5).items shouldHaveSize 0
+    }
+
+    @Test
+    fun shouldMergeDuplicatePlacesWhenLastRecordIsRelinked() {
+        owner(1L)
+        owner(2L)
+        val records = saved()
+        val kept = records.create(1L, SavedPlaceDraft(name = "Хмель", lat = 55.7500, lon = 37.6200))
+        val duplicate = records.create(2L, SavedPlaceDraft(name = "Хмель бар", lat = 55.7501, lon = 37.6201))
+        em.flush()
+        em.clear()
+        val reviewService = reviews()
+        reviewService.rate(1L, kept.id!!, 5)
+        reviewService.rate(2L, duplicate.id!!, 3)
+        reviewService.saveComment(2L, duplicate.id!!, "Комментарий со второго места")
+        em.flush()
+        em.clear()
+        val linkService = links()
+
+        linkService.candidatesFor(2L, duplicate.id!!).map { it.placeId } shouldBe listOf(kept.placeId)
+        linkService.relink(2L, duplicate.id!!, kept.placeId) shouldBe RelinkResult.RELINKED
+        linkService.relink(2L, duplicate.id!!, kept.placeId) shouldBe RelinkResult.SAME_PLACE
+        em.flush()
+        em.clear()
+
+        savedPlaceRepository.findById(duplicate.id!!).get().placeId shouldBe kept.placeId
+        placeRepository.findById(duplicate.placeId).get().mergedIntoId shouldBe kept.placeId
+        val summary = reviewService.summary(kept.placeId)
+        summary.count shouldBe 2
+        summary.average shouldBe 4.0
+        reviewService.commentCount(kept.placeId) shouldBe 1
+        reviewService.summary(duplicate.placeId) shouldBe RatingSummary.EMPTY
+        PlaceMatchingServiceImpl(placeRepository).findCandidates(55.7500, 37.6200, "Хмель")
+            .map { it.placeId } shouldBe listOf(kept.placeId)
+    }
+
+    @Test
+    fun shouldKeepOneCommentPerUserAndPlaceAndResolveMergeConflicts() {
+        owner(1L)
+        owner(2L)
+        val records = saved()
+        val kept = records.create(1L, SavedPlaceDraft(name = "Хмель", lat = 55.7500, lon = 37.6200))
+        val duplicate = records.create(2L, SavedPlaceDraft(name = "Хмель бар", lat = 55.7501, lon = 37.6201))
+        val extra = records.create(1L, SavedPlaceDraft(name = "Хмель второй", lat = 55.7502, lon = 37.6202), linkPlaceId = duplicate.placeId)
+        em.flush()
+        em.clear()
+        val service = reviews()
+
+        service.saveComment(1L, kept.id!!, "первый") shouldBe AddCommentResult.ADDED
+        service.saveComment(1L, kept.id!!, "правка") shouldBe AddCommentResult.UPDATED
+        service.saveComment(1L, extra.id!!, "тот же автор на втором месте") shouldBe AddCommentResult.ADDED
+        service.saveComment(2L, duplicate.id!!, "другой автор") shouldBe AddCommentResult.ADDED
+        em.flush()
+        em.clear()
+        service.commentCount(kept.placeId) shouldBe 1
+        service.userComment(kept.placeId, 1L)!!.text shouldBe "правка"
+
+        links().relink(2L, duplicate.id!!, kept.placeId) shouldBe RelinkResult.RELINKED
+        links().relink(1L, extra.id!!, kept.placeId) shouldBe RelinkResult.RELINKED
+        em.flush()
+        em.clear()
+
+        service.commentCount(kept.placeId) shouldBe 2
+        service.userComment(kept.placeId, 1L)!!.text shouldBe "правка"
+    }
+
+    @Test
+    fun shouldKeepOldPlaceWhenOtherRecordsStillUseIt() {
+        owner(1L)
+        owner(2L)
+        owner(3L)
+        val records = saved()
+        val target = records.create(1L, SavedPlaceDraft(name = "Цель", lat = 55.7500, lon = 37.6200))
+        val shared = records.create(2L, SavedPlaceDraft(name = "Общее", lat = 55.7501, lon = 37.6201))
+        val second = records.create(3L, SavedPlaceDraft(name = "Общее копия"), linkPlaceId = shared.placeId)
+        em.flush()
+        em.clear()
+
+        links().relink(2L, shared.id!!, target.placeId) shouldBe RelinkResult.RELINKED
+        em.flush()
+        em.clear()
+
+        placeRepository.findById(shared.placeId).get().mergedIntoId shouldBe null
+        savedPlaceRepository.findById(second.id!!).get().placeId shouldBe shared.placeId
     }
 
     companion object {

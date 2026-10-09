@@ -19,6 +19,8 @@ interface SavedPlaceRepository : JpaRepository<SavedPlace, Long> {
 
     fun countByPlaceId(placeId: Long): Long
 
+    fun existsByOwnerIdAndPlaceId(ownerId: Long, placeId: Long): Boolean
+
     fun findByIdInAndOwnerId(ids: Collection<Long>, ownerId: Long): List<SavedPlace>
 
     @Query(

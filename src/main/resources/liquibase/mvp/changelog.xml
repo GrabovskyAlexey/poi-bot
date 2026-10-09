@@ -10,5 +10,8 @@
     <include file="liquibase/mvp/2.create_chats.sql"/>
     <include file="liquibase/mvp/3.create_places.sql"/>
     <include file="liquibase/mvp/4.create_saved_place_chat.sql"/>
+    <include file="liquibase/mvp/5.create_place_share_token.sql"/>
+    <include file="liquibase/mvp/6.create_reviews.sql"/>
+    <include file="liquibase/mvp/7.one_comment_per_user.sql"/>
 
 </databaseChangeLog>

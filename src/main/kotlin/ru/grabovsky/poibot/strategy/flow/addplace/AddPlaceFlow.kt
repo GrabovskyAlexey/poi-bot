@@ -1,6 +1,7 @@
 package ru.grabovsky.poibot.strategy.flow.addplace
 
 import io.github.oshai.kotlinlogging.KotlinLogging
+import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.message.Message
@@ -21,6 +22,7 @@ class AddPlaceFlow(
     private val placeMatchingService: PlaceMatchingService,
     private val formatter: PlaceFormatter,
     private val i18n: I18nService,
+    private val meterRegistry: MeterRegistry,
 ) : FlowHandler<AddPlaceState> {
 
     override val key: FlowKey = FlowKeys.ADD_PLACE
@@ -229,6 +231,7 @@ class AddPlaceFlow(
                     CandidateDto(it.placeId, it.name, it.address, it.distanceMeters, it.similarity)
                 }.toMutableList()
                 state.resolveStrong = candidates.first().similarity >= PlaceMatchingService.STRONG_SIMILARITY
+                meterRegistry.counter("poi.place.resolve.shown", "kind", if (state.resolveStrong) "strong" else "weak").increment()
                 val actions = state.cleanupPromptMessages() +
                         EditMessageAction(FORM_BINDING, resolveMessage(state, locale)) +
                         AnswerCallbackAction(callbackQuery.id)
@@ -291,6 +294,10 @@ class AddPlaceFlow(
             lat = state.lat,
             lon = state.lon,
         )
+        // Доля «рейтинг не склеился»: кандидаты были, а пользователь выбрал «другое место»
+        if (state.candidates.isNotEmpty()) {
+            meterRegistry.counter("poi.place.resolve.result", "result", if (linkPlaceId != null) "linked" else "rejected").increment()
+        }
         val editing = state.editingId != null
         val saved = try {
             if (editing) savedPlaceService.update(ownerId, state.editingId!!, draft, linkPlaceId)

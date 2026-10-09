@@ -7,4 +7,7 @@ object FlowKeys {
     val PLACES = FlowKey("PLACES")
     val NEARBY = FlowKey("NEARBY")
     val PUBLISH = FlowKey("PUBLISH")
+    val SHARED = FlowKey("SHARED")
+    val REVIEWS = FlowKey("REVIEWS")
+    val RELINK = FlowKey("RELINK")
 }

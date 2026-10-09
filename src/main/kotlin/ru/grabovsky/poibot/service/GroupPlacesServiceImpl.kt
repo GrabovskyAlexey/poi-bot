@@ -31,7 +31,11 @@ import ru.grabovsky.poibot.strategy.flow.places.ListItemView
 import ru.grabovsky.poibot.strategy.flow.places.PlaceCardView
 import ru.grabovsky.poibot.strategy.flow.places.PlaceFormatter
 import ru.grabovsky.poibot.strategy.flow.places.PlacesListView
+import ru.grabovsky.poibot.strategy.flow.reviews.CommentLine
+import ru.grabovsky.poibot.strategy.flow.reviews.CommentsView
 import ru.grabovsky.poibot.util.LocaleUtils
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.*
 
 @Service
@@ -41,6 +45,7 @@ class GroupPlacesServiceImpl(
     private val userService: UserService,
     private val chatService: ChatService,
     private val publishService: PublishService,
+    private val reviewService: ReviewService,
     private val nearbySearchService: NearbySearchService,
     private val messageGenerateService: MessageGenerateService,
     private val formatter: PlaceFormatter,
@@ -139,6 +144,8 @@ class GroupPlacesServiceImpl(
                 answer(callbackQuery, null)
             }
 
+            "CM" -> openComments(callbackQuery, message, parts, locale, replace = false)
+            "CMP" -> openComments(callbackQuery, message, parts, locale, replace = true)
             "R" -> changeRadius(callbackQuery, message, parts, locale)
             else -> answer(callbackQuery, null)
         }
@@ -153,18 +160,22 @@ class GroupPlacesServiceImpl(
             "places/card",
             PlaceCardView(
                 place.name, place.address, formatter.shorten(place.description, MAX_DESCRIPTION), place.websiteUrl, null,
+                rating = formatter.rating(reviewService.summary(place.placeId)),
             ),
             locale,
         )
         val mapAndClose = mutableListOf<InlineKeyboardButton>()
         if (place.hasLocation()) mapAndClose += callbackButton(i18n.i18n("buttons.places.map", locale), "M:${place.id}")
         mapAndClose += callbackButton(i18n.i18n("buttons.places.close", locale), "C")
-        val markup = InlineKeyboardMarkup(
-            listOf(
-                InlineKeyboardRow(mapAndClose),
-                InlineKeyboardRow(callbackButton(i18n.i18n("buttons.group.remove", locale), "X:${place.id}")),
+        val commentsCount = reviewService.commentCount(place.placeId)
+        val rows = mutableListOf(InlineKeyboardRow(mapAndClose))
+        if (commentsCount > 0) {
+            rows += InlineKeyboardRow(
+                callbackButton(i18n.i18n("buttons.reviews.comments", locale, null, commentsCount), "CM:${place.placeId}:0")
             )
-        )
+        }
+        rows += InlineKeyboardRow(callbackButton(i18n.i18n("buttons.group.remove", locale), "X:${place.id}"))
+        val markup = InlineKeyboardMarkup(rows)
         val photo = place.photoFileId
         if (photo != null) {
             val send = SendPhoto.builder().chatId(message.chatId).photo(InputFile(photo))
@@ -204,6 +215,34 @@ class GroupPlacesServiceImpl(
         }
     }
 
+    /** Комментарии места только для чтения (анонимно): первая страница — ответом, листание правит сообщение. */
+    private fun openComments(callbackQuery: CallbackQuery, message: Message, parts: List<String>, locale: Locale, replace: Boolean) {
+        val placeId = parts.getOrNull(1)?.toLongOrNull() ?: return answer(callbackQuery, null)
+        val page = reviewService.comments(placeId, NO_VIEWER, parts.getOrNull(2)?.toIntOrNull() ?: 0, COMMENTS_PAGE_SIZE)
+        val lines = page.items.mapIndexed { index, item ->
+            CommentLine(page.page * COMMENTS_PAGE_SIZE + index + 1, item.text, item.createdAt?.atOffset(ZoneOffset.UTC)?.format(COMMENT_DATE).orEmpty(), false)
+        }
+        val view = CommentsView(
+            lines, page.page + 1, page.totalPages, page.total, formatter.rating(reviewService.summary(placeId)), manage = false,
+        )
+        val nav = mutableListOf<InlineKeyboardButton>()
+        if (page.page > 0) nav += callbackButton("◀", "CMP:$placeId:${page.page - 1}")
+        if (page.page < page.totalPages - 1) nav += callbackButton("▶", "CMP:$placeId:${page.page + 1}")
+        val rows = mutableListOf<InlineKeyboardRow>()
+        if (nav.isNotEmpty()) rows += InlineKeyboardRow(nav)
+        rows += InlineKeyboardRow(callbackButton(i18n.i18n("buttons.places.close", locale), "C"))
+        val markup = InlineKeyboardMarkup(rows)
+        val text = render("reviews/comments", view, locale)
+        if (replace) {
+            edit(message.chatId, message.messageId, text, markup)
+        } else {
+            val send = SendMessage.builder().chatId(message.chatId).text(text).parseMode(HTML).replyMarkup(markup).build()
+            send.replyToMessageId = message.messageId
+            run("send comments") { telegramClient.execute(send) }
+        }
+        answer(callbackQuery, null)
+    }
+
     private fun changeRadius(callbackQuery: CallbackQuery, message: Message, parts: List<String>, locale: Locale) {
         val radius = SearchRadius.fromMeters(parts.getOrNull(1)?.toIntOrNull())
         val lat = parts.getOrNull(2)?.toDoubleOrNull()
@@ -222,7 +261,10 @@ class GroupPlacesServiceImpl(
     private fun listData(chatId: Long, page: Int): ListData {
         val result = publishService.listPublished(chatId, page, PAGE_SIZE)
         val items = result.items.mapIndexed { index, place ->
-            ListItemView(result.page * PAGE_SIZE + index + 1, place.name, formatter.shorten(place.address, ADDRESS_PREVIEW))
+            ListItemView(
+                result.page * PAGE_SIZE + index + 1, place.name, formatter.shorten(place.address, ADDRESS_PREVIEW),
+                hasLocation = place.hasLocation(), hasPhoto = place.photoFileId != null,
+            )
         }
         return ListData(PlacesListView(items, result.page + 1, result.totalPages, result.totalItems), result.items)
     }
@@ -334,5 +376,8 @@ class GroupPlacesServiceImpl(
         const val MAX_DESCRIPTION = 600
         const val MAX_CAPTION = 1024
         const val MAX_SHOWN = 8
+        const val COMMENTS_PAGE_SIZE = 5
+        const val NO_VIEWER = 0L
+        val COMMENT_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
     }
 }

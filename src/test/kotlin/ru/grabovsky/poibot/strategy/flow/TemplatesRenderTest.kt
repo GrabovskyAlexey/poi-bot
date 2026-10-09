@@ -11,6 +11,9 @@ import ru.grabovsky.poibot.strategy.flow.core.templating.FlowTemplateRenderer
 import ru.grabovsky.poibot.strategy.flow.nearby.*
 import ru.grabovsky.poibot.strategy.flow.places.*
 import ru.grabovsky.poibot.strategy.flow.publish.*
+import ru.grabovsky.poibot.strategy.flow.shared.*
+import ru.grabovsky.poibot.strategy.flow.reviews.*
+import ru.grabovsky.poibot.strategy.flow.relink.*
 import ru.grabovsky.poibot.service.MessageGenerateServiceImpl
 import ru.grabovsky.poibot.strategy.flow.start.StartViewModel
 import java.util.*
@@ -62,6 +65,27 @@ class TemplatesRenderTest : ShouldSpec({
         renderer.render(FlowKeys.ADD_PLACE, "field_choice", ru, FieldChoiceView("a < b")) shouldContain "a &lt; b"
     }
 
+    should("show location and photo icons only for places that have them") {
+        val items = listOf(
+            ListItemView(1, "Полное", null, hasLocation = true, hasPhoto = true),
+            ListItemView(2, "Только фото", null, hasLocation = false, hasPhoto = true),
+            ListItemView(3, "Пустое", null),
+        )
+        val text = renderer.render(FlowKeys.PLACES, "list", ru, PlacesListView(items, 1, 1, 3))
+
+        val lines = text.lines()
+        lines.single { it.startsWith("1. ") } shouldContain "🗺 📷"
+        lines.single { it.startsWith("2. ") }.let { it shouldContain "📷"; it shouldNotContain "🗺" }
+        lines.single { it.startsWith("3. ") }.let { it shouldNotContain "🗺"; it shouldNotContain "📷" }
+        text shouldContain "🗺 — есть геопозиция, 📷 — есть фото"
+        renderer.render(FlowKeys.PLACES, "list", en, PlacesListView(items, 1, 1, 3)) shouldContain "has a location"
+        MessageGenerateServiceImpl(configurer).processTemplate("group/list", PlacesListView(items, 1, 1, 3), ru) shouldContain "1. <b>Полное</b> 🗺 📷"
+        val select = SelectView(listOf(SelectItemView(1, "Полное", true, true, true), SelectItemView(2, "Пустое", false)), 1, 1, 2, 1)
+        val selectLines = renderer.render(FlowKeys.PUBLISH, "select", ru, select).lines()
+        selectLines.single { it.contains("Полное") } shouldContain "🗺 📷"
+        selectLines.single { it.contains("Пустое") } shouldNotContain "🗺"
+    }
+
     should("render empty and non-empty places list") {
         renderer.render(FlowKeys.PLACES, "list", ru, PlacesListView(emptyList(), 1, 1, 0)) shouldContain "/add"
         val full = PlacesListView(listOf(ListItemView(1, "Хмель", "Ленина 5")), 1, 2, 9)
@@ -90,8 +114,8 @@ class TemplatesRenderTest : ShouldSpec({
         val text = renderer.render(FlowKeys.NEARBY, "result", ru, view)
 
         text shouldContain "В радиусе <b>100 м</b> ничего нет"
-        text shouldContain "до 500 м ещё +3 (всего 4)"
-        text shouldContain "до 1 км ещё +2 (всего 6)"
+        text shouldContain "В радиусе 500 м — ещё 3 (всего 4)"
+        text shouldContain "В радиусе 1 км — ещё 2 (всего 6)"
         text shouldNotContain "250"
     }
 

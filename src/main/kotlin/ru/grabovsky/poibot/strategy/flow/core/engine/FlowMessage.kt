@@ -19,7 +19,17 @@ data class FlowInlineButton(
     val payload: FlowCallbackPayload,
     val row: Int = 0,
     val col: Int = 0,
-)
+    /** Если задан, кнопка открывает ссылку (например, диалог выбора чата Telegram), а payload игнорируется. */
+    val url: String? = null,
+) {
+    companion object {
+        /** Ряд «служебных» кнопок (закрыть, удалить, отмена): всегда внизу, сколько бы рядов ни добавили выше. */
+        const val LAST_ROW = 99
+
+        fun link(text: String, url: String, row: Int = 0, col: Int = 0) =
+            FlowInlineButton(text, FlowCallbackPayload("", ""), row, col, url)
+    }
+}
 
 data class FlowReplyButton(
     val text: String,

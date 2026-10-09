@@ -48,13 +48,17 @@ abstract class AbstractCommand(
         runCatching {
             prepare(user, chat, arguments)
             val locale = LocaleUtils.resolve(userService.getUser(user.id))
-            if (!flowEngine.start(flowKey, user, locale)) {
-                logger.error { "Flow $flowKey not found, command processing aborted" }
+            val (startKey, startArgs) = resolveStart(arguments)
+            if (!flowEngine.start(startKey, user, locale, startArgs)) {
+                logger.error { "Flow $startKey not found, command processing aborted" }
             }
         }.onFailure { error ->
             logger.warn { "Error process flow ${flowKey.value} for user ${user.userName ?: user.firstName} with id ${user.id} with error: $error, stacktrace: ${error.stackTrace}" }
         }
     }
+
+    /** Какой flow и с какими аргументами запускать (по умолчанию — свой, без аргументов). */
+    protected open fun resolveStart(arguments: Array<out String>): Pair<FlowKey, String?> = flowKey to null
 
     /**
      * Команда вызвана в группе. Диалоги в группах не ведём: фиксируем, что пользователь состоит в группе.

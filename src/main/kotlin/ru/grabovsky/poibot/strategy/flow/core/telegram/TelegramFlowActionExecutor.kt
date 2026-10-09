@@ -9,6 +9,7 @@ import org.telegram.telegrambots.meta.api.methods.send.SendPhoto
 import org.telegram.telegrambots.meta.api.methods.send.SendVenue
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessages
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageCaption
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText
 import org.telegram.telegrambots.meta.api.objects.InputFile
 import org.telegram.telegrambots.meta.api.objects.User
@@ -121,6 +122,26 @@ class TelegramFlowActionExecutor(
                             .showAlert(action.showAlert)
                             .build()
                     )
+                }
+
+                is EditCardAction -> {
+                    val rendered = renderMessage(action.message, locale)
+                    val markup = buildInlineMarkup(action.message.inlineButtons)
+                    runCatching {
+                        if (action.caption) {
+                            val edit = EditMessageCaption.builder().chatId(user.id).messageId(action.messageId)
+                                .caption(rendered.take(MAX_CAPTION_LENGTH)).build()
+                            action.message.parseMode.telegramValue?.let { edit.parseMode = it }
+                            edit.replyMarkup = markup
+                            telegramClient.execute(edit)
+                        } else {
+                            val edit = buildEditMessage(user.id, action.messageId, rendered, action.message)
+                            telegramClient.execute(edit)
+                        }
+                    }.onFailure {
+                        // карточку могли удалить или она не изменилась — для flow это не ошибка
+                        logger.debug { "Card refresh skipped for message ${action.messageId}: ${it.message}" }
+                    }
                 }
 
                 is SendPhotoAction -> {
@@ -273,7 +294,11 @@ class TelegramFlowActionExecutor(
             InlineKeyboardRow(
                 sorted.map { button ->
                     InlineKeyboardButton(button.text).apply {
-                        callbackData = objectMapper.writeValueAsString(button.payload)
+                        if (button.url != null) {
+                            url = button.url
+                        } else {
+                            callbackData = objectMapper.writeValueAsString(button.payload)
+                        }
                     }
                 }
             )

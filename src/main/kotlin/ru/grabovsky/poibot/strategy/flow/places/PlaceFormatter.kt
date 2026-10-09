@@ -2,6 +2,7 @@ package ru.grabovsky.poibot.strategy.flow.places
 
 import org.springframework.stereotype.Component
 import ru.grabovsky.poibot.service.interfaces.I18nService
+import ru.grabovsky.poibot.service.interfaces.RatingSummary
 import java.util.*
 
 /** Форматирование данных места для сообщений (расстояния, обрезка текста). */
@@ -16,6 +17,13 @@ class PlaceFormatter(
             val km = String.format(Locale.ROOT, "%.1f", meters / METERS_IN_KM.toDouble()).removeSuffix(".0")
             "$km ${i18n.i18n("unit.km", locale)}"
         }
+
+    /** «4.3 (12)» или null, если оценок нет. */
+    fun rating(summary: RatingSummary): String? {
+        val average = summary.average ?: return null
+        if (summary.count == 0) return null
+        return String.format(Locale.ROOT, "%.1f (%d)", average, summary.count)
+    }
 
     fun shorten(text: String?, max: Int): String? =
         text?.takeIf { it.isNotBlank() }?.let { if (it.length > max) it.take(max - 1) + "…" else it }

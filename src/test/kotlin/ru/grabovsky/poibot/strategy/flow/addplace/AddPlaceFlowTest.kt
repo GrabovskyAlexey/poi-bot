@@ -32,7 +32,7 @@ class AddPlaceFlowTest : ShouldSpec({
     val savedPlaceService = mockk<SavedPlaceService>()
     val matching = mockk<PlaceMatchingService>()
     val i18n = KeyI18n()
-    val flow = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n)
+    val flow = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, io.micrometer.core.instrument.simple.SimpleMeterRegistry())
     val tgUser = mockk<TgUser> { every { id } returns 7L }
 
     beforeTest { clearMocks(savedPlaceService, matching) }
@@ -247,5 +247,20 @@ class AddPlaceFlowTest : ShouldSpec({
         result.shouldNotBeNull()
         result.completed shouldBe true
         result.actions.shouldContain(DeleteMessageAction("form"))
+    }
+
+    should("count shown and rejected candidates for the duplicate-places metric") {
+        val registry = io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+        val metered = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, registry)
+        val state = AddPlaceState(name = "Хмель", lat = 55.0, lon = 37.0)
+        every { matching.findCandidates(55.0, 37.0, "Хмель") } returns listOf(PlaceCandidate(5L, "Хмель", null, 10, 1.0))
+        every { savedPlaceService.create(7L, any(), null) } returns SavedPlace(id = 1L, ownerId = 7L, placeId = 9L, name = "Хмель")
+
+        metered.onCallback(context(state), callback(), "SAVE")
+        metered.onCallback(context(state), callback(), "NO")
+
+        registry.counter("poi.place.resolve.shown", "kind", "strong").count() shouldBe 1.0
+        registry.counter("poi.place.resolve.result", "result", "rejected").count() shouldBe 1.0
+        registry.counter("poi.place.resolve.result", "result", "linked").count() shouldBe 0.0
     }
 })

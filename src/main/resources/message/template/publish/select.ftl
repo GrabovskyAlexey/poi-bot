@@ -2,6 +2,6 @@
 Выберите места (выбрано: ${data.selectedCount}), страница ${data.page}/${data.totalPages}:
 
 <#list data.items as item>
-${item.selected?then("☑", "⬜")} ${item.index}. ${item.name?html}
+${item.selected?then("☑", "⬜")} ${item.index}. ${item.name?html}<#if item.hasLocation> 🗺</#if><#if item.hasPhoto> 📷</#if>
 </#list>
 </#if>

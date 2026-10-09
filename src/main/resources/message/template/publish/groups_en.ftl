@@ -7,7 +7,7 @@
 </#if>
 
 <#if data.groups?size == 0>
-No groups available yet. Add the bot to a group and press "➕ Choose a group" below — pick a chat where the bot is a member.
+No groups available yet. Add the bot to the group you need, then press "➕ Choose a group" below and pick it.
 <#else>
 Tap a group to publish the places: ✅ — published, ➖ — only some, ⬜ — no. Tap again to unpublish.
 Missing a group? Press "➕ Choose a group" below.

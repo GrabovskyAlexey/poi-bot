@@ -1,0 +1,9 @@
+# Профиль продакшена (SPRING_PROFILES_ACTIVE=prod, задаётся в deploy/docker-compose.prod.yaml)
+logging:
+  file:
+    # каталог смонтирован как том контейнера; в консоль (docker logs) логи пишутся всегда
+    name: /opt/app/logs/bot.log
+  level:
+    ru:
+      grabovsky:
+        poibot: info

@@ -108,4 +108,34 @@ class CommandsTest : ShouldSpec({
         verify { groupService.askNearbyLocation(groupChat, tgUser, 124) }
         verify { groupService.showAddHint(groupChat, tgUser, 124) }
     }
+
+    should("start the shared flow with the token for a start deep link") {
+        val userService = mockk<UserService>()
+        val engine = mockk<FlowEngine>(relaxed = true)
+        val command = StartCommand(userService, engine, mockk(relaxed = true))
+        val tgUser = mockk<TgUser>(relaxed = true) { every { id } returns 320L }
+        val persisted = User(320L, "Linked", null, "linked").apply { profile = UserProfile(userId = userId, user = this) }
+        every { userService.createOrUpdateUser(tgUser) } returns persisted
+        every { userService.getUser(320L) } returns persisted
+        every { engine.start(any(), any(), any(), any()) } returns true
+
+        command.execute(telegramClient, tgUser, chat, arrayOf("sp_abcdefghijklmnop"))
+
+        verify { engine.start(FlowKeys.SHARED, tgUser, any(), "sp_abcdefghijklmnop") }
+    }
+
+    should("start the regular flow for unknown start payload") {
+        val userService = mockk<UserService>()
+        val engine = mockk<FlowEngine>(relaxed = true)
+        val command = StartCommand(userService, engine, mockk(relaxed = true))
+        val tgUser = mockk<TgUser>(relaxed = true) { every { id } returns 321L }
+        val persisted = User(321L, "Plain", null, "plain").apply { profile = UserProfile(userId = userId, user = this) }
+        every { userService.createOrUpdateUser(tgUser) } returns persisted
+        every { userService.getUser(321L) } returns persisted
+        every { engine.start(any(), any(), any(), any()) } returns true
+
+        command.execute(telegramClient, tgUser, chat, arrayOf("something"))
+
+        verify { engine.start(FlowKeys.START, tgUser, any(), null) }
+    }
 })
