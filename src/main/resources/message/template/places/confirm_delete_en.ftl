@@ -1,0 +1,1 @@
+Delete place <b>${data.name?html}</b>?

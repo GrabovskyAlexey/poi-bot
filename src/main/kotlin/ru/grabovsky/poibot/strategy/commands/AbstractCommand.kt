@@ -5,6 +5,7 @@ import org.telegram.telegrambots.extensions.bots.commandbot.commands.BotCommand
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.chat.Chat
 import org.telegram.telegrambots.meta.generics.TelegramClient
+import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowEngine
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowKey
@@ -15,6 +16,7 @@ abstract class AbstractCommand(
     protected val flowKey: FlowKey,
     protected val userService: UserService,
     private val flowEngine: FlowEngine,
+    private val chatService: ChatService,
     val sortOrder: Int = command.order,
 ) : BotCommand(command.command, command.text), BotCommands {
 
@@ -28,6 +30,10 @@ abstract class AbstractCommand(
         chat: Chat,
         arguments: Array<out String>,
     ) {
+        if (!chat.isUserChat) {
+            executeInGroup(user, chat, arguments)
+            return
+        }
         logger.info { "Process flow ${flowKey.value} for user ${user.userName ?: user.firstName} with id ${user.id}" }
         runCatching {
             prepare(user, chat, arguments)
@@ -37,6 +43,20 @@ abstract class AbstractCommand(
             }
         }.onFailure { error ->
             logger.warn { "Error process flow ${flowKey.value} for user ${user.userName ?: user.firstName} with id ${user.id} with error: $error, stacktrace: ${error.stackTrace}" }
+        }
+    }
+
+    /**
+     * Команда вызвана в группе. Диалоги в группах не ведём: фиксируем, что пользователь состоит в группе.
+     * Команды чтения для групп переопределяют этот метод (этап 2).
+     */
+    protected open fun executeInGroup(user: User, chat: Chat, arguments: Array<out String>) {
+        runCatching {
+            userService.createOrUpdateUser(user)
+            chatService.registerChat(chat)
+            chatService.linkUser(user.id, chat.id)
+        }.onFailure { error ->
+            logger.warn { "Error registering group chat ${chat.id} for user ${user.id}: ${error.message}" }
         }
     }
 

@@ -31,5 +31,6 @@ data class UserProfile(
 )
 
 data class UserSettings(
-    var placeholder: Boolean = false,
+    /** Радиус поиска рядом по умолчанию, метры (см. SearchRadius). */
+    var searchRadiusMeters: Int = 250,
 )

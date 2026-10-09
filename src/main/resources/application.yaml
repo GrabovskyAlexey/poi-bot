@@ -7,8 +7,7 @@ spring:
     password: ${PG_PASSWORD}
     driver-class-name: org.postgresql.Driver
   liquibase:
-    change-log: liquibase/changelog.yaml
-    default-schema: poi_bot
+    change-log: liquibase/changelog.xml
   jpa:
     show-sql: false
 

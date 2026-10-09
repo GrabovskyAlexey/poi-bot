@@ -1,0 +1,1 @@
+Send your location (the button below or 📎 → Location) and I will find your places nearby. Default radius: <b>${data.radiusText}</b>.

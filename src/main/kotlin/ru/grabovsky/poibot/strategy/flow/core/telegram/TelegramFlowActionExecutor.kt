@@ -5,9 +5,12 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery
 import org.telegram.telegrambots.meta.api.methods.reactions.SetMessageReaction
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto
+import org.telegram.telegrambots.meta.api.methods.send.SendVenue
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessages
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText
+import org.telegram.telegrambots.meta.api.objects.InputFile
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.reactions.ReactionTypeEmoji
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup
@@ -16,7 +19,9 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMar
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButtonRequestChat
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
+import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException
 import org.telegram.telegrambots.meta.generics.TelegramClient
 import ru.grabovsky.poibot.strategy.flow.core.engine.*
 import ru.grabovsky.poibot.strategy.flow.core.templating.FlowTemplateRenderer
@@ -66,7 +71,7 @@ class TelegramFlowActionExecutor(
                         "step=${action.message.stepKey}, bindingKey=${action.bindingKey}, " +
                         TelegramLogUtils.formatEditMessage(editMessage, objectMapper)
                     }
-                    telegramClient.execute(editMessage)
+                    executeEdit(editMessage)
                 }
 
                 is DeleteMessageAction -> {
@@ -84,12 +89,16 @@ class TelegramFlowActionExecutor(
 
                 is DeleteMessageIdAction -> {
                     logger.debug { "Deleting message by ID: userId=${user.id}, messageId=${action.messageId}" }
-                    telegramClient.execute(
-                        DeleteMessages.builder()
-                            .chatId(user.id)
-                            .messageIds(listOf(action.messageId))
-                            .build()
-                    )
+                    runCatching {
+                        telegramClient.execute(
+                            DeleteMessages.builder()
+                                .chatId(user.id)
+                                .messageIds(listOf(action.messageId))
+                                .build()
+                        )
+                    }.onFailure {
+                        logger.debug { "Could not delete message ${action.messageId}: ${it.message}" }
+                    }
                 }
 
                 is AnswerCallbackAction -> {
@@ -104,6 +113,31 @@ class TelegramFlowActionExecutor(
                             .showAlert(action.showAlert)
                             .build()
                     )
+                }
+
+                is SendPhotoAction -> {
+                    val caption = renderMessage(action.message, locale).take(MAX_CAPTION_LENGTH)
+                    val sendPhoto = SendPhoto.builder()
+                        .chatId(user.id)
+                        .photo(InputFile(action.photoFileId))
+                        .caption(caption)
+                        .build()
+                    action.message.parseMode.telegramValue?.let { sendPhoto.parseMode = it }
+                    sendPhoto.replyMarkup = buildInlineMarkup(action.message.inlineButtons)
+                    val result = telegramClient.execute(sendPhoto)
+                    action.bindingKey?.let { replacements[it] = result.messageId }
+                }
+
+                is SendVenueAction -> {
+                    val sendVenue = SendVenue.builder()
+                        .chatId(user.id)
+                        .latitude(action.latitude)
+                        .longitude(action.longitude)
+                        .title(action.title)
+                        .address(action.address ?: "")
+                        .build()
+                    val result = telegramClient.execute(sendVenue)
+                    action.bindingKey?.let { replacements[it] = result.messageId }
                 }
 
                 is SetReactionAction -> {
@@ -131,6 +165,16 @@ class TelegramFlowActionExecutor(
             replacements = replacements,
             removed = removed,
         )
+    }
+
+    /** Telegram отвечает 400, если содержимое не изменилось; для флоу это не ошибка. */
+    private fun executeEdit(editMessage: EditMessageText) {
+        try {
+            telegramClient.execute(editMessage)
+        } catch (error: TelegramApiRequestException) {
+            if (error.apiResponse?.contains("message is not modified") != true) throw error
+            logger.debug { "Edit skipped: message is not modified" }
+        }
     }
 
     private fun renderMessage(message: FlowMessage, locale: Locale): String =
@@ -170,6 +214,9 @@ class TelegramFlowActionExecutor(
                                 .text(button.text)
                                 .requestLocation(button.requestLocation)
                                 .build()
+                                .also { keyboardButton ->
+                                    button.requestChatId?.let { keyboardButton.requestChat = groupPickerRequest(it) }
+                                }
                         )
                     }
                 }
@@ -179,6 +226,12 @@ class TelegramFlowActionExecutor(
                     .build()
             }
     }
+
+    private fun groupPickerRequest(requestId: String) =
+        KeyboardButtonRequestChat(requestId, false).apply {
+            botIsMember = true
+            requestTitle = true
+        }
 
     private fun buildInlineMarkup(buttons: List<FlowInlineButton>): InlineKeyboardMarkup? {
         if (buttons.isEmpty()) {
@@ -201,5 +254,6 @@ class TelegramFlowActionExecutor(
 
     companion object {
         private val logger = KotlinLogging.logger {}
+        private const val MAX_CAPTION_LENGTH = 1024
     }
 }

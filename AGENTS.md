@@ -7,7 +7,7 @@
 Шаблон создан по образцу `dungeoncrusherbot` (соседний каталог) без доменной части.
 
 ## Структура
-Код: `src/main/kotlin/ru/grabovsky/poibot`: `bot` — приём апдейтов, `service` — бизнес-логика, `strategy` — команды и сценарии (flow), `client` — API-клиенты (Feign), `entity`/`repository` — данные, `config`/`framework`/`util` — инфраструктура. Ресурсы: `application.yaml`, шаблоны Freemarker `message/template/{flow}/{step}{,_ru,_en}.ftl`, локализация `messages_*.properties`, миграции `liquibase/changelog/N.name.sql` (подключаются в `liquibase/changelog.yaml`). Схема БД — `poi_bot`.
+Код: `src/main/kotlin/ru/grabovsky/poibot`: `bot` — приём апдейтов, `service` — бизнес-логика, `strategy` — команды и сценарии (flow), `client` — API-клиенты (Feign), `entity`/`repository` — данные, `config`/`framework`/`util` — инфраструктура. Ресурсы: `application.yaml`, шаблоны Freemarker `message/template/{flow}/{step}{,_ru,_en}.ftl`, локализация `messages_*.properties`, миграции Liquibase: корневой кумулятивный `liquibase/changelog.xml` включает по одному `changelog.xml` на папку (`liquibase/mvp/`, далее по папке на задачу), а сами миграции — formatted SQL `N.name.sql` в этих папках. Схема БД — `poi_bot`.
 
 ## Команды
 - `./gradlew build` — сборка и тесты; `./gradlew test`; `./gradlew jacocoTestReport`
@@ -24,8 +24,15 @@
 - Слои: `entity` (JPA, `kotlin-jpa` + `allOpen`, схема в `@Table(schema = "poi_bot")`, JSON-поля через `@JdbcTypeCode(SqlTypes.JSON)`) → `repository` (Spring Data JPA) → `service/interfaces` + `service/*Impl` (один интерфейс — одна реализация, бизнес-логика) → `strategy/dto` (модели для шаблонов) → `strategy/flow/<feature>`.
 - Фича = пакет `strategy/flow/<feature>` (`*Flow`, `*FlowState`, `*Step : FlowStep`, `*ViewService`, `*PromptBuilder`) + `FlowKeys.<FEATURE>` + запись в `Command` + `*Command` + шаблоны `message/template/<feature>/<step>{,_ru,_en}.ftl` + ключи в `messages_*.properties` (lower.snake.case).
 - Пользователь: `User` + `UserProfile` (1:1, `@MapsId`; флаги `isBlocked`/`isAdmin`, `locale`, настройки — JSON `UserSettings`). Доменные связи пользователя добавлять в `User` (OneToOne/ManyToMany) или в JSON-настройки профиля.
-- Миграции Liquibase — нумерованные SQL-файлы; миграции и релиз-ноуты отдельными коммитами. В dungeoncrusherbot также есть `UpdateMessage`/release notes, админ-сообщения (`AdminMessage` flow), `SchedulerService` (cron в `application.yaml`) — переносить по необходимости.
+- Миграции Liquibase: кумулятивный `changelog.xml` → `<папка>/changelog.xml` → нумерованные SQL-файлы; миграции и релиз-ноуты отдельными коммитами. В dungeoncrusherbot также есть `UpdateMessage`/release notes, админ-сообщения (`AdminMessage` flow), `SchedulerService` (cron в `application.yaml`) — переносить по необходимости.
 - Тесты: Kotest `ShouldSpec` + MockK, имена на английском (`shouldDoSomethingWhenPrecondition`), БД — Testcontainers; цель ≥80% покрытия `service` и `strategy`.
 
 ## Стиль и безопасность
 Kotlin Style Guide, 4 пробела, один публичный класс на файл, `val` и неизменяемые коллекции. Секреты не коммитим: переменные окружения, локально — `application-local.yaml` (в `.gitignore`). Коммиты — на английском, в повелительном наклонении.
+
+## Заметки по реализации (этап 1)
+- Шаблоны локализуются двумя файлами: `step.ftl` (ru, по умолчанию) и `step_en.ftl` (Freemarker сам выбирает по локали). Тексты с пользовательскими данными — только `?html` и `FlowParseMode.HTML`.
+- Тексты кнопок и алертов — в `messages_{ru,en}.properties` (ключи `buttons.*`, `alerts.*`, `unit.*`).
+- Callback-кнопка к другому flow (например, «Изменить» → `ADD_PLACE`): если у flow нет состояния, `ReceiverServiceImpl` запускает его и передаёт `payload.data` как `FlowStartContext.args`.
+- Поиск рядом всегда идёт по максимальному радиусу (1 км), результат раскладывается по радиусам в `NearbyResult.build`.
+- Тест `PlaceRepositoriesIT` требует Docker (без него пропускается).

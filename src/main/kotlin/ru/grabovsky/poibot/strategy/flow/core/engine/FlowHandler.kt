@@ -27,6 +27,8 @@ interface FlowHandler<TPayload : Any> {
 data class FlowStartContext(
     val user: User,
     val locale: Locale,
+    /** Необязательный аргумент запуска (например, `EDIT:12`, если flow запущен по callback без состояния). */
+    val args: String? = null,
 )
 
 data class FlowStateHolder<TPayload : Any>(

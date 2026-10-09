@@ -20,10 +20,13 @@ data class FlowInlineButton(
 data class FlowReplyButton(
     val text: String,
     val requestLocation: Boolean = false,
+    /** requestId системного выбора чата (KeyboardButtonRequestChat); результат придёт сообщением chat_shared. */
+    val requestChatId: String? = null,
 )
 
 enum class FlowParseMode(val telegramValue: String?) {
     MARKDOWN("Markdown"),
+    HTML("HTML"),
     NONE(null),
 }
 

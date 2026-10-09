@@ -39,3 +39,19 @@ data class SetReactionAction(
 ) : FlowAction {
     override val bindingKey: String? = null
 }
+
+/** Фото с подписью; текст сообщения (шаблон) уходит в caption (до 1024 символов). */
+data class SendPhotoAction(
+    override val bindingKey: String?,
+    val photoFileId: String,
+    val message: FlowMessage,
+) : FlowAction
+
+/** Показ места на карте (Telegram venue). */
+data class SendVenueAction(
+    override val bindingKey: String?,
+    val title: String,
+    val address: String?,
+    val latitude: Double,
+    val longitude: Double,
+) : FlowAction

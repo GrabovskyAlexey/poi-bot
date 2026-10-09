@@ -1,3 +1,8 @@
-<#if (data.username)??>Welcome, *${data.username}*!</#if>
+<#if (data.username)??>Welcome, *${data.username}*!<#else>Welcome!</#if>
 
-This is a bot template. Command list: /help.
+I help you save places of interest — bars, cafes, restaurants — and find them near you.
+
+➕ /add — add a place (name, address, photo, location, website, description)
+📍 /places — my places
+🧭 /nearby — find my places nearby (100 m, 250 m, 500 m, 1 km)
+❓ /help — help

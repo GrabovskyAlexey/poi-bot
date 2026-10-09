@@ -35,6 +35,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-freemarker")
     implementation("org.springframework.cloud:spring-cloud-starter-openfeign")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.liquibase:liquibase-core")
     implementation("io.github.oshai:kotlin-logging-jvm:8.0.4")
     implementation("org.telegram:telegrambots-springboot-longpolling-starter:${telegramBotVersion}")

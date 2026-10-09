@@ -17,10 +17,10 @@ class FlowEngine(
 ) {
     private val handlerByKey: Map<FlowKey, FlowHandler<out Any>> = handlers.associateBy { it.key }
 
-    fun start(flowKey: FlowKey, user: User, locale: Locale): Boolean {
+    fun start(flowKey: FlowKey, user: User, locale: Locale, args: String? = null): Boolean {
         val handler = handler<Any>(flowKey) ?: return false
         stateService.clear(user.id, flowKey)
-        val result = handler.start(FlowStartContext(user, locale))
+        val result = handler.start(FlowStartContext(user, locale, args))
         applyResult(user, flowKey, null, result, locale)
         return true
     }

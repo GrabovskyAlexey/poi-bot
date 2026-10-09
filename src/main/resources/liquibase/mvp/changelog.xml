@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- Миграции MVP. Сами миграции — formatted SQL, порядок задаёт этот файл -->
+    <include file="liquibase/mvp/1.create_tables.sql"/>
+    <include file="liquibase/mvp/2.create_chats.sql"/>
+    <include file="liquibase/mvp/3.create_places.sql"/>
+
+</databaseChangeLog>
