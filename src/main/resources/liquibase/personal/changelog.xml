@@ -5,8 +5,7 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <!-- Кумулятивный корневой changelog: по одному include на папку (MVP, затем по папке на задачу) -->
-    <include file="liquibase/mvp/changelog.xml"/>
-    <include file="liquibase/personal/changelog.xml"/>
+    <!-- Релиз 0.4: личные поля записи -->
+    <include file="liquibase/personal/1.personal_fields.sql"/>
 
 </databaseChangeLog>
