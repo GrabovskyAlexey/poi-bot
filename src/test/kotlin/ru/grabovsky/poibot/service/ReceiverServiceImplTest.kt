@@ -17,6 +17,7 @@ import ru.grabovsky.poibot.entity.FlowState
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.FlowStateService
 import ru.grabovsky.poibot.service.interfaces.GroupPlacesService
+import ru.grabovsky.poibot.service.interfaces.InlineShareService
 import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowCallbackPayload
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowEngine
@@ -34,10 +35,11 @@ class ReceiverServiceImplTest : ShouldSpec({
     val groupPlacesService = mockk<GroupPlacesService>(relaxed = true)
     val privateChat = mockk<Chat> { every { isUserChat } returns true }
     val objectMapper = ObjectMapper().findAndRegisterModules()
-    val service = ReceiverServiceImpl(userService, objectMapper, flowEngine, flowStateService, chatService, groupPlacesService)
+    val inlineShareService = mockk<InlineShareService>(relaxed = true)
+    val service = ReceiverServiceImpl(userService, objectMapper, flowEngine, flowStateService, chatService, groupPlacesService, inlineShareService)
 
     beforeTest {
-        clearMocks(userService, flowEngine, flowStateService, chatService, groupPlacesService)
+        clearMocks(userService, flowEngine, flowStateService, chatService, groupPlacesService, inlineShareService)
     }
 
     should("запускать поиск рядом для геопозиции без активного флоу") {
@@ -403,5 +405,20 @@ class ReceiverServiceImplTest : ShouldSpec({
         verify { chatService.registerSharedChat(-1003L, "Work") }
         verify { chatService.linkUser(403L, -1003L) }
         verify { flowEngine.onMessage(FlowKey("PUBLISH"), telegramUser, any(), telegramMessage) }
+    }
+
+    should("передавать inline-запрос сервису inline-шаринга") {
+        val inlineQuery = mockk<org.telegram.telegrambots.meta.api.objects.inlinequery.InlineQuery>()
+        val update = mockk<Update> {
+            every { hasCallbackQuery() } returns false
+            every { hasMessage() } returns false
+            every { hasMyChatMember() } returns false
+            every { hasInlineQuery() } returns true
+            every { this@mockk.inlineQuery } returns inlineQuery
+        }
+
+        service.execute(update)
+
+        verify { inlineShareService.answer(inlineQuery) }
     }
 })
