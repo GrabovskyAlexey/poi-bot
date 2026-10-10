@@ -6,5 +6,8 @@
 <b>Photo:</b> <#if data.hasPhoto>✅<#else>—</#if>
 <b>Website:</b> <#if data.website??>${data.website?html}<#else>—</#if>
 <b>Description:</b> <#if data.description??>${data.description?html}<#else>—</#if>
+<b>Tags:</b> <#if data.tags?has_content><#list data.tags as tag>#${tag?html}<#sep> </#list><#else>—</#if>
+<b>Note:</b> <#if data.note??>${data.note?html}<#else>—</#if>
+<b>Status:</b> <#if data.statusText??>${data.statusText}<#else>—</#if>
 
 <i>Fill in the fields in any order: use the buttons or just send the bot a location, photo, venue, link or text. Only the name is required.</i>

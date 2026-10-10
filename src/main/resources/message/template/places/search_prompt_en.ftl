@@ -1,1 +1,1 @@
-🔎 Send what to look for: part of a name or an address.
+🔎 Send what to look for: part of a name, address, tag or note.

@@ -69,9 +69,32 @@ class CommandsTest : ShouldSpec({
             every { chatId } returns 160L
         }
 
+        every { userService.getUser(160L) } returns null
+
         command.processMessage(telegramClient, message, emptyArray())
 
         verify { telegramClient.execute(match<org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage> { it.messageId == 5 }) }
+    }
+
+    should("keep the command message when the user turned auto-clean off") {
+        val userService = mockk<UserService>(relaxed = true)
+        val engine = mockk<FlowEngine>(relaxed = true)
+        val command = HelpCommand(userService, engine, mockk(relaxed = true))
+        val tgUser = mockk<TgUser>(relaxed = true) { every { id } returns 161L }
+        val message = mockk<Message>(relaxed = true) {
+            every { this@mockk.chat } returns chat
+            every { from } returns tgUser
+            every { messageId } returns 6
+            every { chatId } returns 161L
+        }
+        val persisted = ru.grabovsky.poibot.entity.User(161L, "T", null, "t").apply {
+            profile = ru.grabovsky.poibot.entity.UserProfile(settings = ru.grabovsky.poibot.entity.UserSettings(cleanChat = false))
+        }
+        every { userService.getUser(161L) } returns persisted
+
+        command.processMessage(telegramClient, message, emptyArray())
+
+        verify(exactly = 0) { telegramClient.execute(match<org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage> { it.messageId == 6 }) }
     }
 
     should("only register chat and link user when command is used in a group") {

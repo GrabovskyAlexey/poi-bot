@@ -106,6 +106,35 @@ class TemplatesRenderTest : ShouldSpec({
         renderer.render(FlowKeys.PLACES, "search_prompt", en, null).isNotBlank() shouldBe true
     }
 
+    should("render personal fields in the card, the form and the list header") {
+        val card = PlaceCardView("Хмель", null, null, null, null, tags = listOf("бар", "крафт"), note = "Столик <у окна>", statusText = "🎯 Хочу сходить")
+        val ruCard = renderer.render(FlowKeys.PLACES, "card", ru, card)
+        ruCard shouldContain "🎯 Хочу сходить"
+        ruCard shouldContain "🏷 #бар #крафт"
+        ruCard shouldContain "🗒 Столик &lt;у окна&gt;"
+        renderer.render(FlowKeys.PLACES, "card", en, card) shouldContain "🏷 #бар #крафт"
+        renderer.render(FlowKeys.PLACES, "card", ru, PlaceCardView("Хмель", null, null, null, null)).trim() shouldBe "<b>Хмель</b>"
+
+        val form = AddFormView(true, "Хмель", null, false, false, null, null, tags = listOf("бар"), note = "заметка", statusText = "✅ Был")
+        val ruForm = renderer.render(FlowKeys.ADD_PLACE, "form", ru, form)
+        ruForm shouldContain "#бар"
+        ruForm shouldContain "заметка"
+        ruForm shouldContain "✅ Был"
+        renderer.render(FlowKeys.ADD_PLACE, "form", en, form) shouldContain "Tags:"
+        renderer.render(FlowKeys.ADD_PLACE, "prompt", ru, PromptView("tags", false, null)) shouldContain "теги"
+        renderer.render(FlowKeys.ADD_PLACE, "prompt", en, PromptView("note", false, null)) shouldContain "note"
+
+        val filtered = PlacesListView(emptyList(), 1, 1, 0, filtered = true, tag = "бар", statusText = "🎯 Хочу сходить")
+        renderer.render(FlowKeys.PLACES, "list", ru, filtered) shouldContain "🏷 #бар 🎯 Хочу сходить"
+        renderer.render(FlowKeys.PLACES, "tag_prompt", ru, null).isNotBlank() shouldBe true
+        renderer.render(FlowKeys.PLACES, "tag_prompt", en, null).isNotBlank() shouldBe true
+    }
+
+    should("render the settings screen") {
+        renderer.render(FlowKeys.SETTINGS, "main", ru, null) shouldContain "Настройки"
+        renderer.render(FlowKeys.SETTINGS, "main", en, null) shouldContain "Settings"
+    }
+
     should("render empty and non-empty places list") {
         renderer.render(FlowKeys.PLACES, "list", ru, PlacesListView(emptyList(), 1, 1, 0)) shouldContain "/add"
         val full = PlacesListView(listOf(ListItemView(1, "Хмель", "Ленина 5")), 1, 2, 9)

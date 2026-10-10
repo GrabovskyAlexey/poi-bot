@@ -20,7 +20,9 @@ enum class PlaceField(val code: String, val maxLength: Int) {
     LOCATION("location", 0),
     PHOTO("photo", 0),
     WEBSITE("website", 500),
-    DESCRIPTION("description", 1000);
+    DESCRIPTION("description", 1000),
+    TAGS("tags", 200),
+    NOTE("note", 500);
 
     companion object {
         fun fromCode(code: String?): PlaceField? = entries.firstOrNull { it.code == code }
@@ -46,6 +48,12 @@ data class AddPlaceState(
     var photoFileUniqueId: String? = null,
     var lat: Double? = null,
     var lon: Double? = null,
+    /** Личные поля записи: статус ([ru.grabovsky.poibot.entity.PlaceStatus]), заметка и теги. */
+    var status: String? = null,
+    var note: String? = null,
+    var tags: MutableList<String> = mutableListOf(),
+    /** Теги-подсказки текущего запроса тегов (кнопки несут индекс, а не сам тег: лимит callback-данных). */
+    var tagSuggestions: MutableList<String> = mutableListOf(),
     var originalLat: Double? = null,
     var originalLon: Double? = null,
     var awaitingField: String? = null,
@@ -72,6 +80,9 @@ data class AddPlaceState(
         photoFileUniqueId = place.photoFileUniqueId
         lat = place.lat
         lon = place.lon
+        status = place.status
+        note = place.note
+        tags = place.tags.toMutableList()
         originalLat = place.lat
         originalLon = place.lon
     }
@@ -82,6 +93,8 @@ data class AddPlaceState(
         PlaceField.DESCRIPTION -> description
         PlaceField.WEBSITE -> websiteUrl
         PlaceField.PHOTO -> photoFileId
+        PlaceField.TAGS -> tags.joinToString(" ").ifEmpty { null }
+        PlaceField.NOTE -> note
         PlaceField.LOCATION -> if (hasLocation()) "$lat,$lon" else null
     }
 
@@ -91,6 +104,8 @@ data class AddPlaceState(
             PlaceField.ADDRESS -> address = null
             PlaceField.DESCRIPTION -> description = null
             PlaceField.WEBSITE -> websiteUrl = null
+            PlaceField.TAGS -> tags.clear()
+            PlaceField.NOTE -> note = null
             PlaceField.PHOTO -> {
                 photoFileId = null
                 photoFileUniqueId = null
@@ -112,6 +127,10 @@ data class AddFormView(
     val hasPhoto: Boolean,
     val website: String?,
     val description: String?,
+    val tags: List<String> = emptyList(),
+    val note: String? = null,
+    /** Локализованный личный статус; null - не задан. */
+    val statusText: String? = null,
 )
 
 /** Модель шаблона `add_place/prompt`. */
