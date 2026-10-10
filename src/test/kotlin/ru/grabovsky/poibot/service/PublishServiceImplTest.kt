@@ -113,6 +113,7 @@ class PublishServiceImplTest : ShouldSpec({
     context("unpublishAsModerator") {
         should("allow the owner without asking Telegram") {
             every { savedPlaceRepository.findPublishedInChatById(-1L, 5L) } returns place(5, owner = 1L)
+            every { savedPlaceRepository.findPublishedInChatByPlaceId(-1L, 1L) } returns listOf(place(5, owner = 1L))
 
             service.unpublishAsModerator(1L, -1L, 5L) shouldBe true
 
@@ -121,13 +122,40 @@ class PublishServiceImplTest : ShouldSpec({
 
         should("allow a chat admin") {
             every { savedPlaceRepository.findPublishedInChatById(-1L, 5L) } returns place(5, owner = 1L)
+            every { savedPlaceRepository.findPublishedInChatByPlaceId(-1L, 1L) } returns listOf(place(5, owner = 1L))
             every { checker.isAdmin(-1L, 2L) } returns true
 
             service.unpublishAsModerator(2L, -1L, 5L) shouldBe true
         }
 
+        should("let an admin remove every copy of the place published by several members") {
+            every { savedPlaceRepository.findPublishedInChatById(-1L, 5L) } returns place(5, owner = 1L)
+            every { savedPlaceRepository.findPublishedInChatByPlaceId(-1L, 1L) } returns
+                    listOf(place(5, owner = 1L), place(6, owner = 3L))
+            every { checker.isAdmin(-1L, 2L) } returns true
+
+            service.unpublishAsModerator(2L, -1L, 5L) shouldBe true
+
+            verify { savedPlaceChatRepository.deleteById(SavedPlaceChatId(5L, -1L)) }
+            verify { savedPlaceChatRepository.deleteById(SavedPlaceChatId(6L, -1L)) }
+        }
+
+        should("let a member remove only their own copy even when another member's copy is shown") {
+            every { savedPlaceRepository.findPublishedInChatById(-1L, 5L) } returns place(5, owner = 1L)
+            every { savedPlaceRepository.findPublishedInChatByPlaceId(-1L, 1L) } returns
+                    listOf(place(5, owner = 1L), place(6, owner = 3L))
+            every { checker.isAdmin(-1L, 3L) } returns false
+
+            service.unpublishAsModerator(3L, -1L, 5L) shouldBe true
+
+            verify(exactly = 0) { savedPlaceChatRepository.deleteById(SavedPlaceChatId(5L, -1L)) }
+            verify { savedPlaceChatRepository.deleteById(SavedPlaceChatId(6L, -1L)) }
+            service.canModerate(3L, -1L, place(5, owner = 1L)) shouldBe true
+        }
+
         should("deny a regular member") {
             every { savedPlaceRepository.findPublishedInChatById(-1L, 5L) } returns place(5, owner = 1L)
+            every { savedPlaceRepository.findPublishedInChatByPlaceId(-1L, 1L) } returns listOf(place(5, owner = 1L))
             every { checker.isAdmin(-1L, 2L) } returns false
 
             service.unpublishAsModerator(2L, -1L, 5L) shouldBe false

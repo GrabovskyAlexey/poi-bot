@@ -23,7 +23,10 @@ interface PublishService {
      */
     fun setPublished(userId: Long, placeIds: Collection<Long>, chatId: Long, publish: Boolean): Int
 
-    /** Снять с публикации может владелец записи или администратор чата. */
+    /**
+     * Снять с публикации может владелец записи или администратор чата. Одно место, опубликованное в чате несколькими
+     * участниками, в списке показывается один раз: администратор снимает все такие записи, участник - только свою.
+     */
     fun unpublishAsModerator(userId: Long, chatId: Long, savedPlaceId: Long): Boolean
 
     fun canModerate(userId: Long, chatId: Long, place: SavedPlace): Boolean

@@ -4,12 +4,26 @@ import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.message.Message
 import ru.grabovsky.poibot.service.interfaces.I18nService
+import ru.grabovsky.poibot.service.interfaces.PlaceListPage
+import ru.grabovsky.poibot.service.interfaces.PlaceListQuery
+import ru.grabovsky.poibot.service.interfaces.PlaceListService
+import ru.grabovsky.poibot.service.interfaces.PlaceSort
 import ru.grabovsky.poibot.service.interfaces.SavedPlaceService
 import ru.grabovsky.poibot.strategy.flow.core.engine.*
 import ru.grabovsky.poibot.strategy.flow.core.support.buildMessage
 import java.util.*
 
-data class PlacesState(var page: Int = 0)
+data class PlacesState(
+    var page: Int = 0,
+    var query: String? = null,
+    var sort: String = PlaceSort.NEW.name,
+    var withLocation: Boolean = false,
+    var withPhoto: Boolean = false,
+    /** Ждём текст поиска от пользователя. */
+    var awaitingSearch: Boolean = false,
+) {
+    fun toQuery() = PlaceListQuery(query, PlaceSort.valueOf(sort), withLocation, withPhoto)
+}
 
 data class ListItemView(
     val index: Int,
@@ -17,10 +31,25 @@ data class ListItemView(
     val address: String?,
     val hasLocation: Boolean = false,
     val hasPhoto: Boolean = false,
+    /** «4.3 (12)»; null, если оценок нет. */
+    val rating: String? = null,
 )
 
-/** Модель шаблона `places/list`. */
-data class PlacesListView(val items: List<ListItemView>, val page: Int, val totalPages: Int, val total: Long)
+/**
+ * Модель шаблонов `places/list` и `group/list`. [filtered] - включён поиск или фильтры (пустой список тогда значит
+ * «ничего не найдено», а не «мест нет»); [sortName] - название сортировки, если она не по умолчанию.
+ */
+data class PlacesListView(
+    val items: List<ListItemView>,
+    val page: Int,
+    val totalPages: Int,
+    val total: Long,
+    val filtered: Boolean = false,
+    val query: String? = null,
+    val withLocation: Boolean = false,
+    val withPhoto: Boolean = false,
+    val sortName: String? = null,
+)
 
 /** Модель шаблона `places/confirm_delete`. */
 data class ConfirmDeleteView(val name: String)
@@ -29,6 +58,7 @@ data class ConfirmDeleteView(val name: String)
 @Component
 class PlacesFlow(
     private val savedPlaceService: SavedPlaceService,
+    private val placeListService: PlaceListService,
     private val cardFactory: PlaceCardFactory,
     private val formatter: PlaceFormatter,
     private val i18n: I18nService,
@@ -46,7 +76,21 @@ class PlacesFlow(
         )
     }
 
-    override fun onMessage(context: FlowContext<PlacesState>, message: Message): FlowResult<PlacesState>? = null
+    /** Текст поиска: принимается, только пока бот его ждёт (после нажатия «Поиск»). */
+    override fun onMessage(context: FlowContext<PlacesState>, message: Message): FlowResult<PlacesState>? {
+        val state = context.state.payload
+        if (!state.awaitingSearch) return null
+        val text = message.text?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        state.query = text.take(MAX_QUERY_LENGTH)
+        state.page = 0
+        state.awaitingSearch = false
+        val actions = listOf(
+            DeleteMessageIdAction(message.messageId),
+            DeleteMessageAction(PROMPT_BINDING),
+            EditMessageAction(LIST_BINDING, listMessage(message.from.id, state, context.locale)),
+        )
+        return FlowResult(PlacesStep.LIST.key, state, actions)
+    }
 
     override fun onCallback(
         context: FlowContext<PlacesState>,
@@ -63,6 +107,46 @@ class PlacesFlow(
         val actions: List<FlowAction> = when (command) {
             "PAGE" -> {
                 state.page = id?.toInt() ?: state.page
+                listOf(EditMessageAction(LIST_BINDING, listMessage(userId, state, locale)), answer)
+            }
+
+            "SEARCH" -> {
+                state.awaitingSearch = true
+                listOf(
+                    DeleteMessageAction(PROMPT_BINDING),
+                    SendMessageAction(PROMPT_BINDING, searchPromptMessage(locale)),
+                    answer,
+                )
+            }
+
+            "SCANCEL" -> {
+                state.awaitingSearch = false
+                listOf(DeleteMessageAction(PROMPT_BINDING), answer)
+            }
+
+            "RESET" -> {
+                state.query = null
+                state.withLocation = false
+                state.withPhoto = false
+                state.page = 0
+                listOf(EditMessageAction(LIST_BINDING, listMessage(userId, state, locale)), answer)
+            }
+
+            "FLOC" -> {
+                state.withLocation = !state.withLocation
+                state.page = 0
+                listOf(EditMessageAction(LIST_BINDING, listMessage(userId, state, locale)), answer)
+            }
+
+            "FPHOTO" -> {
+                state.withPhoto = !state.withPhoto
+                state.page = 0
+                listOf(EditMessageAction(LIST_BINDING, listMessage(userId, state, locale)), answer)
+            }
+
+            "SORT" -> {
+                state.sort = nextSort(PlaceSort.valueOf(state.sort)).name
+                state.page = 0
                 listOf(EditMessageAction(LIST_BINDING, listMessage(userId, state, locale)), answer)
             }
 
@@ -111,42 +195,77 @@ class PlacesFlow(
         )
 
     private fun listMessage(userId: Long, state: PlacesState, locale: Locale): FlowMessage {
-        val page = savedPlaceService.list(userId, state.page, PAGE_SIZE)
+        val query = state.toQuery()
+        val page: PlaceListPage = placeListService.searchOwn(userId, query, state.page, PAGE_SIZE)
         state.page = page.page
-        val items = page.items.mapIndexed { index, place ->
+        val items = page.items.mapIndexed { index, entry ->
+            val place = entry.place
             ListItemView(
                 page.page * PAGE_SIZE + index + 1, place.name, formatter.shorten(place.address, ADDRESS_PREVIEW),
                 hasLocation = place.hasLocation(), hasPhoto = place.photoFileId != null,
+                rating = formatter.rating(entry.rating),
             )
         }
         val buttons = mutableListOf<FlowInlineButton>()
-        page.items.forEachIndexed { index, place ->
-            val label = "${items[index].index}. ${place.name.take(BUTTON_NAME_LENGTH)}"
-            buttons += FlowInlineButton(label, FlowCallbackPayload(key.value, "OPEN:${place.id}"), row = index)
+        page.items.forEachIndexed { index, entry ->
+            val label = "${items[index].index}. ${entry.place.name.take(BUTTON_NAME_LENGTH)}"
+            buttons += FlowInlineButton(label, FlowCallbackPayload(key.value, "OPEN:${entry.place.id}"), row = index)
         }
+        var row = page.items.size
         if (page.totalPages > 1) {
-            val navRow = page.items.size
             if (page.page > 0) {
-                buttons += FlowInlineButton("◀", FlowCallbackPayload(key.value, "PAGE:${page.page - 1}"), navRow, 0)
+                buttons += FlowInlineButton("◀", FlowCallbackPayload(key.value, "PAGE:${page.page - 1}"), row, 0)
             }
             if (page.page < page.totalPages - 1) {
-                buttons += FlowInlineButton("▶", FlowCallbackPayload(key.value, "PAGE:${page.page + 1}"), navRow, 1)
+                buttons += FlowInlineButton("▶", FlowCallbackPayload(key.value, "PAGE:${page.page + 1}"), row, 1)
             }
+            row++
         }
-        if (page.totalItems > 0) {
+        if (page.totalUnfiltered > 0) {
+            buttons += control("buttons.places.search", locale, "SEARCH", row, 0)
+            buttons += control("buttons.places.sort.${query.sort.name.lowercase()}", locale, "SORT", row, 1)
+            row++
+            buttons += control(filterKey("buttons.places.filter_location", query.withLocation), locale, "FLOC", row, 0)
+            buttons += control(filterKey("buttons.places.filter_photo", query.withPhoto), locale, "FPHOTO", row, 1)
+            row++
+            if (query.filtered) {
+                buttons += control("buttons.places.reset", locale, "RESET", row++, 0)
+            }
             buttons += FlowInlineButton(
                 i18n.i18n("buttons.places.publish_many", locale),
                 FlowCallbackPayload(FlowKeys.PUBLISH.value, "ALL"),
-                row = page.items.size + (if (page.totalPages > 1) 1 else 0),
+                row = row,
             )
         }
         return key.buildMessage(
             step = PlacesStep.LIST,
-            model = PlacesListView(items, page.page + 1, page.totalPages, page.totalItems),
+            model = PlacesListView(
+                items, page.page + 1, page.totalPages, page.total,
+                filtered = query.filtered, query = query.text?.trim()?.takeIf { it.isNotEmpty() },
+                withLocation = query.withLocation, withPhoto = query.withPhoto,
+                sortName = query.sort.takeIf { it != PlaceSort.NEW }
+                    ?.let { i18n.i18n("places.sort_name.${it.name.lowercase()}", locale) },
+            ),
             inlineButtons = buttons,
             parseMode = FlowParseMode.HTML,
         )
     }
+
+    private fun searchPromptMessage(locale: Locale): FlowMessage =
+        key.buildMessage(
+            step = PlacesStep.SEARCH_PROMPT,
+            inlineButtons = listOf(control("buttons.common.cancel", locale, "SCANCEL", 0, 0)),
+            parseMode = FlowParseMode.HTML,
+        )
+
+    private fun control(textKey: String, locale: Locale, data: String, row: Int, col: Int) =
+        FlowInlineButton(i18n.i18n(textKey, locale), FlowCallbackPayload(key.value, data), row, col)
+
+    /** Включённый фильтр помечается ключом с суффиксом _on. */
+    private fun filterKey(base: String, active: Boolean) = if (active) base + "_on" else base
+
+    private fun nextSort(current: PlaceSort): PlaceSort =
+        PlaceSort.entries[(current.ordinal + 1) % PlaceSort.entries.size]
 
     private fun confirmDeleteMessage(id: Long, name: String, locale: Locale): FlowMessage =
         key.buildMessage(
@@ -162,6 +281,8 @@ class PlacesFlow(
     private companion object {
         const val LIST_BINDING = "list"
         const val CARD_BINDING = "card"
+        const val PROMPT_BINDING = "prompt"
+        const val MAX_QUERY_LENGTH = 50
         const val PAGE_SIZE = 8
         const val BUTTON_NAME_LENGTH = 40
         const val ADDRESS_PREVIEW = 60

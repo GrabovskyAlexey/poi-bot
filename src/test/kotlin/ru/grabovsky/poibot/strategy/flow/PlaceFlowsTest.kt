@@ -70,22 +70,32 @@ class PlaceFlowsTest : ShouldSpec({
 
     context("PlacesFlow") {
         val service = mockk<SavedPlaceService>()
-        val flow = PlacesFlow(service, cardFactory, formatter, i18n)
+        val lists = mockk<ru.grabovsky.poibot.service.interfaces.PlaceListService>()
+        val flow = PlacesFlow(service, lists, cardFactory, formatter, i18n)
+
+        fun listPage(
+            places: List<SavedPlace>, page: Int, totalPages: Int, total: Long, unfiltered: Long = total,
+        ) = ru.grabovsky.poibot.service.interfaces.PlaceListPage(
+            places.map { ru.grabovsky.poibot.service.interfaces.PlaceListEntry(it, ru.grabovsky.poibot.service.interfaces.RatingSummary.EMPTY) },
+            page, totalPages, total, unfiltered,
+        )
+
+        val controls = listOf("SEARCH", "SORT", "FLOC", "FPHOTO")
 
         fun ctx(state: PlacesState = PlacesState()) =
             FlowContext(tgUser, locale, FlowStateHolder("list", state, mapOf("list" to 1, "card" to 2)))
 
         should("show the first page on start") {
-            every { service.list(7L, 0, any()) } returns SavedPlacePage(listOf(place(1)), 0, 1, 1)
+            every { lists.searchOwn(7L, any(), 0, any()) } returns listPage(listOf(place(1)), 0, 1, 1)
 
             val result = flow.start(FlowStartContext(tgUser, locale))
 
             val send = result.actions.single().shouldBeInstanceOf<SendMessageAction>()
-            send.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:1", "ALL")
+            send.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:1") + controls + "ALL"
         }
 
         should("mark places that have a location or a photo in the list") {
-        every { service.list(7L, 0, any()) } returns SavedPlacePage(
+        every { lists.searchOwn(7L, any(), 0, any()) } returns listPage(
             listOf(
                 place(1, "Полное", photo = "p"),
                 place(2, "Без геопозиции").copy(lat = null, lon = null),
@@ -100,14 +110,68 @@ class PlaceFlowsTest : ShouldSpec({
     }
 
     should("show pagination buttons only where there is a neighbour page") {
-            every { service.list(7L, 1, any()) } returns
-                    SavedPlacePage(listOf(place(9, "A")), 1, 3, 17)
+            every { lists.searchOwn(7L, any(), 1, any()) } returns listPage(listOf(place(9, "A")), 1, 3, 17)
 
             val result = flow.onCallback(ctx(), callback(), "PAGE:1")
 
             result.shouldNotBeNull()
             val edit = result.actions.filterIsInstance<EditMessageAction>().single()
-            edit.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:9", "PAGE:0", "PAGE:2", "ALL")
+            edit.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:9", "PAGE:0", "PAGE:2") + controls + "ALL"
+        }
+
+        should("toggle a filter, go back to the first page and show a reset button") {
+            val queries = mutableListOf<ru.grabovsky.poibot.service.interfaces.PlaceListQuery>()
+            every { lists.searchOwn(7L, capture(queries), any(), any()) } returns listPage(listOf(place(1)), 0, 1, 1, unfiltered = 5)
+            val state = PlacesState(page = 3)
+
+            val result = flow.onCallback(ctx(state), callback(), "FPHOTO")
+
+            result.shouldNotBeNull()
+            queries.single().withPhoto shouldBe true
+            state.page shouldBe 0
+            val edit = result.actions.filterIsInstance<EditMessageAction>().single()
+            edit.message.inlineButtons.map { it.payload.data } shouldContain "RESET"
+        }
+
+        should("cycle the sorting") {
+            every { lists.searchOwn(7L, any(), any(), any()) } returns listPage(listOf(place(1)), 0, 1, 1)
+            val state = PlacesState()
+
+            flow.onCallback(ctx(state), callback(), "SORT")
+            state.sort shouldBe "RATING"
+            flow.onCallback(ctx(state), callback(), "SORT")
+            state.sort shouldBe "NAME"
+            flow.onCallback(ctx(state), callback(), "SORT")
+            state.sort shouldBe "NEW"
+        }
+
+        should("ask for the search text and apply it from the next message") {
+            val queries = mutableListOf<ru.grabovsky.poibot.service.interfaces.PlaceListQuery>()
+            every { lists.searchOwn(7L, capture(queries), any(), any()) } returns listPage(listOf(place(1)), 0, 1, 1, unfiltered = 5)
+            val state = PlacesState()
+            val message = mockk<org.telegram.telegrambots.meta.api.objects.message.Message> {
+                every { text } returns "  хмель "
+                every { messageId } returns 90
+                every { from } returns tgUser
+            }
+
+            val ask = flow.onCallback(ctx(state), callback(), "SEARCH")
+            ask.shouldNotBeNull()
+            state.awaitingSearch shouldBe true
+            ask.actions.filterIsInstance<SendMessageAction>().single().message.stepKey shouldBe "search_prompt"
+
+            val applied = flow.onMessage(ctx(state), message)
+
+            applied.shouldNotBeNull()
+            queries.single().text shouldBe "хмель"
+            state.awaitingSearch shouldBe false
+            applied.actions.shouldContain(DeleteMessageIdAction(90))
+        }
+
+        should("ignore text when the search was not requested") {
+            val message = mockk<org.telegram.telegrambots.meta.api.objects.message.Message> { every { text } returns "привет" }
+
+            flow.onMessage(ctx(PlacesState()), message) shouldBe null
         }
 
         should("open a card with a photo as a photo message") {
@@ -134,7 +198,7 @@ class PlaceFlowsTest : ShouldSpec({
         should("delete only after confirmation") {
             every { service.get(7L, 1L) } returns place(1)
             every { service.delete(7L, 1L) } returns true
-            every { service.list(7L, 0, any()) } returns SavedPlacePage(emptyList(), 0, 1, 0)
+            every { lists.searchOwn(7L, any(), 0, any()) } returns listPage(emptyList(), 0, 1, 0)
 
             val ask = flow.onCallback(ctx(), callback(), "DELASK:1")
             ask.shouldNotBeNull()

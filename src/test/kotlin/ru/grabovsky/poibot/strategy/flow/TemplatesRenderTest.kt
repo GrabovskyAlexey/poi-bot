@@ -74,6 +74,8 @@ class TemplatesRenderTest : ShouldSpec({
         val text = renderer.render(FlowKeys.PLACES, "list", ru, PlacesListView(items, 1, 1, 3))
 
         val lines = text.lines()
+        lines.indexOfFirst { it.startsWith("2. ") } - lines.indexOfFirst { it.startsWith("1. ") } shouldBe 1
+        lines.indexOfFirst { it.startsWith("3. ") } - lines.indexOfFirst { it.startsWith("2. ") } shouldBe 1
         lines.single { it.startsWith("1. ") } shouldContain "🗺 📷"
         lines.single { it.startsWith("2. ") }.let { it shouldContain "📷"; it shouldNotContain "🗺" }
         lines.single { it.startsWith("3. ") }.let { it shouldNotContain "🗺"; it shouldNotContain "📷" }
@@ -84,6 +86,24 @@ class TemplatesRenderTest : ShouldSpec({
         val selectLines = renderer.render(FlowKeys.PUBLISH, "select", ru, select).lines()
         selectLines.single { it.contains("Полное") } shouldContain "🗺 📷"
         selectLines.single { it.contains("Пустое") } shouldNotContain "🗺"
+    }
+
+    should("render the places list with rating, filters and the empty search result") {
+        val items = listOf(ListItemView(1, "Хмель", "Ленина 5", hasLocation = true, rating = "4.5 (2)"))
+        val filtered = PlacesListView(items, 1, 1, 1, filtered = true, query = "хм<ель", withPhoto = true, sortName = "по рейтингу")
+
+        val ruText = renderer.render(FlowKeys.PLACES, "list", ru, filtered)
+        ruText shouldContain "⭐ 4.5 (2)"
+        ruText shouldContain "по рейтингу"
+        ruText shouldContain "«хм&lt;ель»"
+        renderer.render(FlowKeys.PLACES, "list", en, filtered) shouldContain "⭐ 4.5 (2)"
+
+        val none = PlacesListView(emptyList(), 1, 1, 0, filtered = true, query = "zzz")
+        renderer.render(FlowKeys.PLACES, "list", ru, none) shouldContain "Ничего не найдено"
+        renderer.render(FlowKeys.PLACES, "list", en, none) shouldContain "Nothing found"
+        renderer.render(FlowKeys.PLACES, "list", ru, PlacesListView(emptyList(), 1, 1, 0)) shouldContain "нет сохранённых мест"
+        renderer.render(FlowKeys.PLACES, "search_prompt", ru, null).isNotBlank() shouldBe true
+        renderer.render(FlowKeys.PLACES, "search_prompt", en, null).isNotBlank() shouldBe true
     }
 
     should("render empty and non-empty places list") {

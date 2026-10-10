@@ -25,6 +25,9 @@ enum class ReportResult { REPORTED, ALREADY_REPORTED, OWN_COMMENT, NOT_FOUND }
 interface ReviewService {
     fun summary(placeId: Long): RatingSummary
 
+    /** Рейтинги нескольких мест одним запросом; места без оценок в результат не попадают. */
+    fun summaries(placeIds: Collection<Long>): Map<Long, RatingSummary>
+
     fun userRating(placeId: Long, userId: Long): Int?
 
     /** Ставит или меняет оценку (1..5) места, на которое ссылается запись [savedPlaceId] пользователя. */

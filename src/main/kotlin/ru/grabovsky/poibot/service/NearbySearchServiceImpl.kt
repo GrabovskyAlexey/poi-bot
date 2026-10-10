@@ -24,7 +24,7 @@ class NearbySearchServiceImpl(
 
     @Transactional(readOnly = true)
     override fun searchInChat(chatId: Long, lat: Double, lon: Double, selected: SearchRadius): NearbyResult =
-        search(lat, lon, selected) { box ->
+        search(lat, lon, selected, distinctPlaces = true) { box ->
             savedPlaceRepository.findPublishedInBox(chatId, box.minLat, box.maxLat, box.minLon, box.maxLon)
         }
 
@@ -32,6 +32,7 @@ class NearbySearchServiceImpl(
         lat: Double,
         lon: Double,
         selected: SearchRadius,
+        distinctPlaces: Boolean = false,
         load: (BoundingBox) -> List<SavedPlace>,
     ): NearbyResult {
         val maxMeters = SearchRadius.MAX.meters
@@ -43,6 +44,8 @@ class NearbySearchServiceImpl(
                 NearbyPoint(place, distance).takeIf { distance <= maxMeters }
             }
             .sortedBy { it.distanceMeters }
+            // В группе одно заведение, опубликованное несколькими участниками, показываем один раз (ближайшая запись)
+            .let { sorted -> if (distinctPlaces) sorted.distinctBy { it.place.placeId } else sorted }
         return NearbyResult.build(points, selected)
     }
 }

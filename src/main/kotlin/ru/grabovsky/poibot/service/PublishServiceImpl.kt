@@ -68,13 +68,21 @@ class PublishServiceImpl(
     @Transactional
     override fun unpublishAsModerator(userId: Long, chatId: Long, savedPlaceId: Long): Boolean {
         val place = savedPlaceRepository.findPublishedInChatById(chatId, savedPlaceId) ?: return false
-        if (!canModerate(userId, chatId, place)) return false
-        savedPlaceChatRepository.deleteById(SavedPlaceChatId(savedPlaceId, chatId))
+        // В списке группы место одно, даже если его опубликовали несколько участников: администратор снимает
+        // все такие записи сразу, остальные - только свою.
+        val entries = savedPlaceRepository.findPublishedInChatByPlaceId(chatId, place.placeId)
+        val own = entries.filter { it.ownerId == userId }
+        val targets = if (own.size == entries.size || !membershipChecker.isAdmin(chatId, userId)) own else entries
+        if (targets.isEmpty()) return false
+        targets.forEach { savedPlaceChatRepository.deleteById(SavedPlaceChatId(it.id!!, chatId)) }
         return true
     }
 
+    @Transactional(readOnly = true)
     override fun canModerate(userId: Long, chatId: Long, place: SavedPlace): Boolean =
-        place.ownerId == userId || membershipChecker.isAdmin(chatId, userId)
+        place.ownerId == userId ||
+                savedPlaceRepository.findPublishedInChatByPlaceId(chatId, place.placeId).any { it.ownerId == userId } ||
+                membershipChecker.isAdmin(chatId, userId)
 
     @Transactional(readOnly = true)
     override fun listPublished(chatId: Long, page: Int, pageSize: Int): SavedPlacePage {

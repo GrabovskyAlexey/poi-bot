@@ -18,6 +18,8 @@ import ru.grabovsky.poibot.entity.PlaceComment
 import ru.grabovsky.poibot.entity.PlaceRating
 import ru.grabovsky.poibot.entity.PlaceRatingId
 import ru.grabovsky.poibot.service.UserDataServiceImpl
+import ru.grabovsky.poibot.service.PlaceListServiceImpl
+import ru.grabovsky.poibot.service.interfaces.PlaceSort
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.shouldNotBe
@@ -480,6 +482,39 @@ class PlaceRepositoriesIT {
         placeRatingRepository.findAllByPlaceId(shared.placeId) shouldHaveSize 0
         placeCommentRepository.countByPlaceIdAndHiddenFalse(shared.placeId) shouldBe 0
         userRepository.findUserByUserId(2L) shouldNotBe null
+    }
+
+    @Test
+    fun shouldAggregateRatingsAndShowSharedPlaceOnceInChat() {
+        owner(1L)
+        owner(2L)
+        group(-41L, 1L)
+        em.entityManager.createNativeQuery("insert into poi_bot.user_chat (user_id, chat_id) values (2, -41)").executeUpdate()
+        val records = saved()
+        val mine = records.create(1L, SavedPlaceDraft(name = "Общее", lat = 55.7500, lon = 37.6200))
+        val friend = records.create(2L, SavedPlaceDraft(name = "Общее у друга", lat = 55.7501, lon = 37.6201), linkPlaceId = mine.placeId)
+        val other = records.create(1L, SavedPlaceDraft(name = "Другое", lat = 55.7502, lon = 37.6202))
+        placeRatingRepository.save(PlaceRating(PlaceRatingId(mine.placeId, 1L), 5))
+        placeRatingRepository.save(PlaceRating(PlaceRatingId(mine.placeId, 2L), 3))
+        em.flush()
+        em.clear()
+        val publish = publishService()
+        publish.setPublished(1L, listOf(mine.id!!, other.id!!), -41L, true)
+        publish.setPublished(2L, listOf(friend.id!!), -41L, true)
+        em.flush()
+        em.clear()
+
+        val aggregates = placeRatingRepository.aggregates(listOf(mine.placeId, other.placeId)).associateBy { it.placeId }
+        aggregates.keys shouldBe setOf(mine.placeId)
+        aggregates.getValue(mine.placeId).average shouldBe 4.0
+        aggregates.getValue(mine.placeId).total shouldBe 2
+
+        val list = PlaceListServiceImpl(savedPlaceRepository, reviews())
+        val page = list.listPublished(-41L, PlaceSort.RATING, 0, 8)
+        page.total shouldBe 2
+        page.items.first().rating.count shouldBe 2
+        NearbySearchServiceImpl(savedPlaceRepository).searchInChat(-41L, 55.7500, 37.6200, SearchRadius.M100)
+            .points shouldHaveSize 2
     }
 
     companion object {
