@@ -1,6 +1,7 @@
 package ru.grabovsky.poibot.strategy.flow.places
 
 import org.springframework.stereotype.Component
+import ru.grabovsky.poibot.entity.PlaceStatus
 import ru.grabovsky.poibot.entity.SavedPlace
 import ru.grabovsky.poibot.service.interfaces.I18nService
 import ru.grabovsky.poibot.service.interfaces.PlaceLinkService
@@ -16,6 +17,10 @@ data class PlaceCardView(
     val distanceText: String?,
     /** «4.3 (12)»; null, если оценок ещё нет. */
     val rating: String? = null,
+    /** Личные поля владельца записи (в карточках для других пользователей не заполняются). */
+    val tags: List<String> = emptyList(),
+    val note: String? = null,
+    val statusText: String? = null,
 )
 
 enum class PlacesStep(override val key: String) : FlowStep {
@@ -23,6 +28,7 @@ enum class PlacesStep(override val key: String) : FlowStep {
     CARD("card"),
     CONFIRM_DELETE("confirm_delete"),
     SEARCH_PROMPT("search_prompt"),
+    TAG_PROMPT("tag_prompt"),
 }
 
 /**
@@ -86,6 +92,9 @@ class PlaceCardFactory(
             website = place.websiteUrl,
             distanceText = distanceMeters?.let { formatter.distance(it, locale) },
             rating = formatter.rating(reviewService.summary(place.placeId)),
+            tags = place.tags,
+            note = formatter.shorten(place.note, MAX_DESCRIPTION),
+            statusText = place.placeStatus()?.let { i18n.i18n("status.${it.name.lowercase()}", locale) },
         ),
         inlineButtons = buttons(owner, place, locale, manage, distanceMeters),
         parseMode = FlowParseMode.HTML,
@@ -129,7 +138,16 @@ class PlaceCardFactory(
             )
         }
         if (placeLinkService.candidatesFor(place.ownerId, id).isNotEmpty()) {
-            result += button(FlowKeys.RELINK, "buttons.relink.open", locale, "OPEN:$id:$context", row, col)
+            result += button(FlowKeys.RELINK, "buttons.relink.open", locale, "OPEN:$id:$context", row, col++)
+        }
+        if (col > 0) row++
+        if (manage) {
+            PlaceStatus.entries.forEachIndexed { index, status ->
+                result += FlowInlineButton(
+                    i18n.i18n(PlaceStatus.buttonKey(status, status.name == place.status), locale),
+                    FlowCallbackPayload(owner.value, "STATUS:$id:${status.name}"), row, index,
+                )
+            }
         }
         return result
     }

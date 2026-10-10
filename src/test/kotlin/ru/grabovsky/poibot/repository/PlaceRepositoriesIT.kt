@@ -15,6 +15,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 import ru.grabovsky.poibot.entity.Chat
 import ru.grabovsky.poibot.entity.User
 import ru.grabovsky.poibot.entity.PlaceComment
+import ru.grabovsky.poibot.entity.PlaceStatus
 import ru.grabovsky.poibot.entity.PlaceRating
 import ru.grabovsky.poibot.entity.PlaceRatingId
 import ru.grabovsky.poibot.service.UserDataServiceImpl
@@ -95,6 +96,29 @@ class PlaceRepositoriesIT {
     private fun owner(id: Long) = em.persistAndFlush(User(id, "Test", null, "test$id"))
 
     private fun saved() = SavedPlaceServiceImpl(savedPlaceRepository, placeRepository)
+
+    @Test
+    fun shouldStorePersonalFieldsAndCountPopularTags() {
+        owner(1L)
+        val service = saved()
+        val first = service.create(
+            1L, SavedPlaceDraft(name = "Хмель", status = "WANT", note = "Столик у окна", tags = listOf("бар", "крафт")),
+        )
+        service.create(1L, SavedPlaceDraft(name = "Кофе", tags = listOf("бар")))
+        service.create(1L, SavedPlaceDraft(name = "Без тегов"))
+        em.flush()
+        em.clear()
+
+        val loaded = service.get(1L, first.id!!)!!
+        loaded.status shouldBe "WANT"
+        loaded.note shouldBe "Столик у окна"
+        loaded.tags shouldBe listOf("бар", "крафт")
+        service.popularTags(1L) shouldBe listOf("бар", "крафт")
+
+        service.toggleStatus(1L, first.id!!, PlaceStatus.BEEN)!!.status shouldBe "BEEN"
+        service.toggleStatus(1L, first.id!!, PlaceStatus.BEEN)!!.status shouldBe null
+        service.get(1L, service.create(1L, SavedPlaceDraft(name = "Новый")).id!!)!!.tags shouldBe emptyList()
+    }
 
     @Test
     fun shouldCreateRecordWithPlaceAndFindItNearby() {

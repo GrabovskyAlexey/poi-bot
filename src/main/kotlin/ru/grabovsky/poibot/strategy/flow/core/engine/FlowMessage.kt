@@ -12,6 +12,8 @@ data class FlowMessage(
     val removeReplyKeyboard: Boolean = false,
     /** Удалить сообщение через N секунд после отправки/редактирования (временные подтверждения). */
     val autoDeleteAfterSeconds: Int? = null,
+    /** Язык текста, если он должен отличаться от языка пользователя в контексте (например, сразу после смены языка). */
+    val locale: java.util.Locale? = null,
 )
 
 data class FlowInlineButton(

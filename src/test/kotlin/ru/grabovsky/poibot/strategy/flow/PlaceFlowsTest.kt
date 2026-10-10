@@ -9,9 +9,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.location.Location
 import org.telegram.telegrambots.meta.api.objects.message.Message
+import ru.grabovsky.poibot.entity.PlaceStatus
 import ru.grabovsky.poibot.entity.SavedPlace
 import ru.grabovsky.poibot.entity.User
 import ru.grabovsky.poibot.entity.UserProfile
@@ -80,7 +82,7 @@ class PlaceFlowsTest : ShouldSpec({
             page, totalPages, total, unfiltered,
         )
 
-        val controls = listOf("SEARCH", "SORT", "FLOC", "FPHOTO")
+        val controls = listOf("SEARCH", "SORT", "FLOC", "FPHOTO", "FSTAT:WANT", "FSTAT:BEEN")
 
         fun ctx(state: PlacesState = PlacesState()) =
             FlowContext(tgUser, locale, FlowStateHolder("list", state, mapOf("list" to 1, "card" to 2)))
@@ -117,6 +119,45 @@ class PlaceFlowsTest : ShouldSpec({
             result.shouldNotBeNull()
             val edit = result.actions.filterIsInstance<EditMessageAction>().single()
             edit.message.inlineButtons.map { it.payload.data } shouldBe listOf("OPEN:9", "PAGE:0", "PAGE:2") + controls + "ALL"
+        }
+
+        should("filter by a picked tag and cycle the status filter") {
+            val queries = mutableListOf<ru.grabovsky.poibot.service.interfaces.PlaceListQuery>()
+            every { lists.searchOwn(7L, capture(queries), any(), any()) } returns listPage(listOf(place(1)), 0, 1, 1, unfiltered = 5)
+            every { service.popularTags(7L) } returns listOf("бар", "кафе")
+            val state = PlacesState(page = 2)
+
+            val choice = flow.onCallback(ctx(state), callback(), "FTAG")
+            choice.shouldNotBeNull()
+            state.tagChoices shouldBe listOf("бар", "кафе")
+            choice.actions.filterIsInstance<SendMessageAction>().single().message.stepKey shouldBe "tag_prompt"
+
+            val picked = flow.onCallback(ctx(state), callback(), "TAGF:1")
+            picked.shouldNotBeNull()
+            state.tag shouldBe "кафе"
+            state.page shouldBe 0
+            queries.last().tag shouldBe "кафе"
+
+            flow.onCallback(ctx(state), callback(), "FSTAT:WANT")
+            state.status shouldBe "WANT"
+            queries.last().status shouldBe "WANT"
+            flow.onCallback(ctx(state), callback(), "FSTAT:BEEN")
+            state.status shouldBe "BEEN"
+
+            flow.onCallback(ctx(state), callback(), "RESET")
+            state.tag shouldBe null
+            state.status shouldBe null
+        }
+
+        should("toggle the personal status from the card and redraw the card") {
+            every { service.toggleStatus(7L, 1L, PlaceStatus.WANT) } returns place(1).copy(status = "WANT")
+            val query = callback()
+            every { query.message } returns mockk { every { messageId } returns 33 }
+
+            val result = flow.onCallback(ctx(PlacesState()), query, "STATUS:1:WANT")
+
+            result.shouldNotBeNull()
+            verify { service.toggleStatus(7L, 1L, PlaceStatus.WANT) }
         }
 
         should("toggle a filter, go back to the first page and show a reset button") {

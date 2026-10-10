@@ -6,5 +6,8 @@
 <b>Фото:</b> <#if data.hasPhoto>✅<#else>—</#if>
 <b>Сайт:</b> <#if data.website??>${data.website?html}<#else>—</#if>
 <b>Описание:</b> <#if data.description??>${data.description?html}<#else>—</#if>
+<b>Теги:</b> <#if data.tags?has_content><#list data.tags as tag>#${tag?html}<#sep> </#list><#else>—</#if>
+<b>Заметка:</b> <#if data.note??>${data.note?html}<#else>—</#if>
+<b>Статус:</b> <#if data.statusText??>${data.statusText}<#else>—</#if>
 
 <i>Поля можно заполнять в любом порядке: нажимайте кнопки или просто присылайте боту геопозицию, фото, место из карты (venue), ссылку или текст. Обязательно только название.</i>

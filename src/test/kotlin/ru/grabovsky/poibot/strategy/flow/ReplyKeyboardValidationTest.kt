@@ -97,6 +97,19 @@ class ReplyKeyboardValidationTest : ShouldSpec({
         }
     }
 
+    should("not schedule auto-delete when the user turned auto-clean off") {
+        val scheduler = mockk<java.util.concurrent.ScheduledExecutorService>(relaxed = true)
+        val timed = TelegramFlowActionExecutor(client, ObjectMapper(), renderer, scheduler) { false }
+        every { client.execute(any<SendMessage>()) } returns mockk<Message> { every { messageId } returns 50 }
+
+        timed.execute(
+            user, Locale.ROOT, emptyMap(),
+            listOf(SendMessageAction("temp", FlowMessage(FlowKeys.PUBLISH, "done", autoDeleteAfterSeconds = 3))),
+        )
+
+        io.mockk.verify(exactly = 0) { scheduler.schedule(any<Runnable>(), any<Long>(), any<java.util.concurrent.TimeUnit>()) }
+    }
+
     should("build a url button that passes client-side validation and carries no callback data") {
         every { client.execute(capture(sent)) } returns mockk<Message> { every { messageId } returns 1 }
         val message = FlowMessage(

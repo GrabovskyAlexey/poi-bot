@@ -33,4 +33,6 @@ data class UserProfile(
 data class UserSettings(
     /** Радиус поиска рядом по умолчанию, метры (см. SearchRadius). */
     var searchRadiusMeters: Int = 250,
+    /** Удалять служебные сообщения: команды в личке и временные подтверждения бота. */
+    var cleanChat: Boolean = true,
 )

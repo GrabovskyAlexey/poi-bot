@@ -11,6 +11,8 @@ import ru.grabovsky.poibot.strategy.flow.core.support.*
 import ru.grabovsky.poibot.strategy.flow.places.CardRef
 import ru.grabovsky.poibot.strategy.flow.places.PlaceCardFactory
 import ru.grabovsky.poibot.strategy.flow.places.PlaceFormatter
+import ru.grabovsky.poibot.entity.PlaceStatus
+import ru.grabovsky.poibot.util.TagUtils
 import ru.grabovsky.poibot.util.UrlUtils
 import java.util.*
 
@@ -54,6 +56,8 @@ class AddPlaceFlow(
             "FIELD" -> PlaceField.fromCode(argument)?.let { onField(context, callbackQuery, it) }
             "PROMPT" -> onPrompt(context, callbackQuery, argument)
             "PUT" -> PlaceField.fromCode(argument)?.let { onPut(context, callbackQuery, it) }
+            "STATUS" -> onStatus(context, callbackQuery, argument)
+            "TAG" -> onTagPick(context, callbackQuery, argument)
             "SAVE" -> onSave(context, callbackQuery)
             "LINK" -> argument?.toLongOrNull()?.let { save(context, callbackQuery, it) }
             "NEW" -> save(context, callbackQuery, null)
@@ -156,6 +160,9 @@ class AddPlaceFlow(
     ): FlowResult<AddPlaceState> {
         val state = context.state.payload
         val cleanup = state.cleanupPromptMessages()
+        if (field == PlaceField.TAGS) {
+            state.tagSuggestions = tagSuggestions(callbackQuery.from.id, state, context.locale).toMutableList()
+        }
         return context.startPrompt(
             targetStep = AddPlaceStep.PROMPT,
             bindingPrefix = PROMPT_BINDING,
@@ -163,6 +170,48 @@ class AddPlaceFlow(
             updateState = { awaitingField = field.code },
             appendActions = { addAll(cleanup) },
         ) { promptMessage(field, state, context.locale) }
+    }
+
+    private fun onStatus(
+        context: FlowContext<AddPlaceState>,
+        callbackQuery: CallbackQuery,
+        argument: String?,
+    ): FlowResult<AddPlaceState>? {
+        val state = context.state.payload
+        val target = PlaceStatus.fromCode(argument) ?: return null
+        state.status = PlaceStatus.toggle(PlaceStatus.fromCode(state.status), target)?.name
+        return result(state, AddPlaceStep.FORM, refreshForm(context, context.locale) + AnswerCallbackAction(callbackQuery.id))
+    }
+
+    /** Тег-подсказка из запроса тегов: добавляет его к записи и закрывает запрос. */
+    private fun onTagPick(
+        context: FlowContext<AddPlaceState>,
+        callbackQuery: CallbackQuery,
+        argument: String?,
+    ): FlowResult<AddPlaceState>? {
+        val state = context.state.payload
+        val tag = argument?.toIntOrNull()?.let { state.tagSuggestions.getOrNull(it) } ?: return null
+        if (tag !in state.tags && state.tags.size >= TagUtils.MAX_TAGS) {
+            return result(state, AddPlaceStep.PROMPT, listOf(alert(callbackQuery, "alerts.add.tags_invalid", context.locale)))
+        }
+        return context.cancelPrompt(
+            targetStep = AddPlaceStep.FORM,
+            callbackQuery = callbackQuery,
+            updateState = {
+                if (tag !in tags) tags.add(tag)
+                awaitingField = null
+            },
+            appendActions = { this += refreshForm(context, context.locale) },
+        )
+    }
+
+    /** Подсказки тегов: сначала частые теги пользователя, затем стартовый набор; уже выбранные не предлагаются. */
+    private fun tagSuggestions(userId: Long, state: AddPlaceState, locale: Locale): List<String> {
+        val defaults = i18n.i18n("tags.defaults", locale).split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        return (savedPlaceService.popularTags(userId) + defaults)
+            .filter { it !in state.tags }
+            .distinct()
+            .take(MAX_SUGGESTIONS)
     }
 
     private fun onPrompt(
@@ -309,6 +358,9 @@ class AddPlaceFlow(
             photoFileUniqueId = state.photoFileUniqueId,
             lat = state.lat,
             lon = state.lon,
+            status = state.status,
+            note = state.note,
+            tags = state.tags.toList(),
         )
         // Доля «рейтинг не склеился»: кандидаты были, а пользователь выбрал «другое место»
         if (state.candidates.isNotEmpty()) {
@@ -347,7 +399,7 @@ class AddPlaceFlow(
 
     private fun applyToField(state: AddPlaceState, field: PlaceField, message: Message): Outcome =
         when (field) {
-            PlaceField.NAME, PlaceField.ADDRESS, PlaceField.DESCRIPTION -> {
+            PlaceField.NAME, PlaceField.ADDRESS, PlaceField.DESCRIPTION, PlaceField.NOTE -> {
                 val text = message.text?.trim()
                 when {
                     text.isNullOrEmpty() -> Outcome.Invalid("alerts.add.text_expected")
@@ -365,6 +417,18 @@ class AddPlaceFlow(
                     Outcome.Invalid("alerts.add.url_invalid")
                 } else {
                     state.websiteUrl = url
+                    Outcome.Applied
+                }
+            }
+
+            PlaceField.TAGS -> {
+                // Новые теги добавляются к уже выбранным; убрать все можно кнопкой «Очистить»
+                val added = message.text?.let(TagUtils::parse)
+                val merged = added?.let { (state.tags + it).distinct() }
+                if (merged == null || merged.size > TagUtils.MAX_TAGS) {
+                    Outcome.Invalid("alerts.add.tags_invalid")
+                } else {
+                    state.tags = merged.toMutableList()
                     Outcome.Applied
                 }
             }
@@ -403,6 +467,7 @@ class AddPlaceFlow(
             PlaceField.NAME -> state.name = text
             PlaceField.ADDRESS -> state.address = text
             PlaceField.DESCRIPTION -> state.description = text
+            PlaceField.NOTE -> state.note = text
             else -> Unit
         }
     }
@@ -464,6 +529,13 @@ class AddPlaceFlow(
             hasPhoto = state.photoFileId != null,
             website = state.websiteUrl,
             description = formatter.shorten(state.description, FORM_DESCRIPTION_PREVIEW),
+            tags = state.tags,
+            note = formatter.shorten(state.note, FORM_DESCRIPTION_PREVIEW),
+            statusText = PlaceStatus.fromCode(state.status)?.let { i18n.i18n("status.${it.name.lowercase()}", locale) },
+        )
+        fun statusButton(status: PlaceStatus, row: Int, col: Int) = FlowInlineButton(
+            i18n.i18n(PlaceStatus.buttonKey(status, status.name == state.status), locale),
+            FlowCallbackPayload(key.value, "STATUS:${status.name}"), row, col,
         )
         fun field(field: PlaceField, row: Int, col: Int) =
             button("buttons.add.field.${field.code}", locale, "FIELD:${field.code}", row, col)
@@ -474,8 +546,10 @@ class AddPlaceFlow(
                 field(PlaceField.NAME, 0, 0), field(PlaceField.ADDRESS, 0, 1),
                 field(PlaceField.LOCATION, 1, 0), field(PlaceField.PHOTO, 1, 1),
                 field(PlaceField.WEBSITE, 2, 0), field(PlaceField.DESCRIPTION, 2, 1),
-                button("buttons.add.save", locale, "SAVE", 3, 0),
-                button("buttons.common.cancel", locale, "CANCEL", 3, 1),
+                field(PlaceField.TAGS, 3, 0), field(PlaceField.NOTE, 3, 1),
+                statusButton(PlaceStatus.WANT, 4, 0), statusButton(PlaceStatus.BEEN, 4, 1),
+                button("buttons.add.save", locale, "SAVE", 5, 0),
+                button("buttons.common.cancel", locale, "CANCEL", 5, 1),
             ),
             parseMode = FlowParseMode.HTML,
         )
@@ -491,6 +565,11 @@ class AddPlaceFlow(
         val buttons = mutableListOf(key.cancelPromptButton(i18n.i18n("buttons.common.cancel", locale)))
         if (hasValue) {
             buttons += button("buttons.add.clear", locale, "PROMPT:CLEAR", 0, 1)
+        }
+        if (field == PlaceField.TAGS) {
+            state.tagSuggestions.forEachIndexed { index, tag ->
+                buttons += FlowInlineButton("#$tag", FlowCallbackPayload(key.value, "TAG:$index"), 1 + index / 2, index % 2)
+            }
         }
         return key.buildMessage(
             step = AddPlaceStep.PROMPT,
@@ -560,5 +639,6 @@ class AddPlaceFlow(
         const val CHOICE_PREVIEW = 100
         const val RESOLVE_LABEL_NAME = 30
         const val SAVED_VISIBLE_SECONDS = 8
+        const val MAX_SUGGESTIONS = 8
     }
 }

@@ -30,6 +30,29 @@ class PlaceListingTest : ShouldSpec({
             PlaceListQuery(text = "   ").filtered shouldBe false
         }
 
+        should("filter by tag and personal status and search by tag and note") {
+            val bar = place(1, "Хмель").copy(tags = listOf("бар", "крафт"), status = "WANT", note = "Столик у окна")
+
+            PlaceListing.matches(bar, PlaceListQuery(tag = "бар")) shouldBe true
+            PlaceListing.matches(bar, PlaceListQuery(tag = "кафе")) shouldBe false
+            PlaceListing.matches(bar, PlaceListQuery(status = "WANT")) shouldBe true
+            PlaceListing.matches(bar, PlaceListQuery(status = "BEEN")) shouldBe false
+            PlaceListing.matches(bar, PlaceListQuery(text = "крафт")) shouldBe true
+            PlaceListing.matches(bar, PlaceListQuery(text = "окна")) shouldBe true
+            PlaceListQuery(tag = "бар").filtered shouldBe true
+            PlaceListQuery(status = "BEEN").filtered shouldBe true
+        }
+
+        should("order popular tags by frequency and then alphabetically") {
+            val places = listOf(
+                place(1, "A").copy(tags = listOf("кафе", "бар")),
+                place(2, "B").copy(tags = listOf("бар")),
+                place(3, "C").copy(tags = listOf("вино")),
+            )
+
+            PlaceListing.popularTags(places) shouldBe listOf("бар", "вино", "кафе")
+        }
+
         should("apply the location and photo filters") {
             val full = place(1, "A", photo = "p")
             val bare = place(2, "B", located = false)

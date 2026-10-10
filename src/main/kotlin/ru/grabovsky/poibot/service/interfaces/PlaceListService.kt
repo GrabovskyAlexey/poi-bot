@@ -10,9 +10,13 @@ data class PlaceListQuery(
     val sort: PlaceSort = PlaceSort.NEW,
     val withLocation: Boolean = false,
     val withPhoto: Boolean = false,
+    /** Только места с этим тегом. */
+    val tag: String? = null,
+    /** Только места с этим личным статусом ([ru.grabovsky.poibot.entity.PlaceStatus.name]). */
+    val status: String? = null,
 ) {
     /** Есть ли поиск или фильтры (сортировка условием не считается). */
-    val filtered: Boolean get() = !text.isNullOrBlank() || withLocation || withPhoto
+    val filtered: Boolean get() = !text.isNullOrBlank() || withLocation || withPhoto || tag != null || status != null
 }
 
 data class PlaceListEntry(val place: SavedPlace, val rating: RatingSummary)
@@ -24,6 +28,8 @@ data class PlaceListPage(
     val totalPages: Int,
     val total: Long,
     val totalUnfiltered: Long,
+    /** Теги всех мест пользователя от частых к редким (для фильтра по тегу); для групп пусто. */
+    val tags: List<String> = emptyList(),
 )
 
 interface PlaceListService {

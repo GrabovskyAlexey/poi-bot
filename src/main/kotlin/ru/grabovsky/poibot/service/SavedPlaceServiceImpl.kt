@@ -4,6 +4,7 @@ import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.grabovsky.poibot.entity.Place
+import ru.grabovsky.poibot.entity.PlaceStatus
 import ru.grabovsky.poibot.entity.SavedPlace
 import ru.grabovsky.poibot.repository.PlaceRepository
 import ru.grabovsky.poibot.repository.SavedPlaceRepository
@@ -64,7 +65,21 @@ class SavedPlaceServiceImpl(
         return true
     }
 
+    @Transactional
+    override fun toggleStatus(ownerId: Long, id: Long, status: PlaceStatus): SavedPlace? {
+        val entity = savedPlaceRepository.findByIdAndOwnerId(id, ownerId) ?: return null
+        entity.status = PlaceStatus.toggle(entity.placeStatus(), status)?.name
+        return savedPlaceRepository.save(entity)
+    }
+
+    @Transactional(readOnly = true)
+    override fun popularTags(ownerId: Long): List<String> =
+        PlaceListing.popularTags(savedPlaceRepository.findAllByOwnerIdOrderByCreatedAtDescIdDesc(ownerId))
+
     private fun SavedPlace.apply(draft: SavedPlaceDraft) {
+        status = draft.status
+        note = draft.note
+        tags = draft.tags
         name = draft.name
         address = draft.address
         description = draft.description
