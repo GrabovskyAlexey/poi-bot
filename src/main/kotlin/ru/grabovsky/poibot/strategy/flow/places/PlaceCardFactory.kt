@@ -22,6 +22,7 @@ enum class PlacesStep(override val key: String) : FlowStep {
     LIST("list"),
     CARD("card"),
     CONFIRM_DELETE("confirm_delete"),
+    SEARCH_PROMPT("search_prompt"),
 }
 
 /**

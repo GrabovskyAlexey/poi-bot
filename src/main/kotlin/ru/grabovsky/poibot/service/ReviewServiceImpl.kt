@@ -29,6 +29,14 @@ class ReviewServiceImpl(
     }
 
     @Transactional(readOnly = true)
+    override fun summaries(placeIds: Collection<Long>): Map<Long, RatingSummary> {
+        if (placeIds.isEmpty()) return emptyMap()
+        return ratingRepository.aggregates(placeIds.toSet()).associate {
+            it.placeId to RatingSummary(it.average, it.total.toInt())
+        }
+    }
+
+    @Transactional(readOnly = true)
     override fun userRating(placeId: Long, userId: Long): Int? =
         ratingRepository.findById(PlaceRatingId(placeId, userId)).orElse(null)?.value
 

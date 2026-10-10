@@ -14,11 +14,23 @@ interface RatingAggregate {
     val total: Long
 }
 
+interface PlaceRatingAggregate {
+    val placeId: Long
+    val average: Double?
+    val total: Long
+}
+
 @Repository
 interface PlaceRatingRepository : JpaRepository<PlaceRating, PlaceRatingId> {
 
     @Query("select avg(r.value) as average, count(r) as total from PlaceRating r where r.id.placeId = :placeId")
     fun aggregate(@Param("placeId") placeId: Long): RatingAggregate
+
+    @Query(
+        "select r.id.placeId as placeId, avg(r.value) as average, count(r) as total from PlaceRating r " +
+                "where r.id.placeId in :placeIds group by r.id.placeId"
+    )
+    fun aggregates(@Param("placeIds") placeIds: Collection<Long>): List<PlaceRatingAggregate>
 
     @Query("select r from PlaceRating r where r.id.placeId = :placeId")
     fun findAllByPlaceId(@Param("placeId") placeId: Long): List<PlaceRating>
