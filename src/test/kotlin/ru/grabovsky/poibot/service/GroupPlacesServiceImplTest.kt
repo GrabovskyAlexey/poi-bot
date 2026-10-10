@@ -48,6 +48,12 @@ class GroupPlacesServiceImplTest : ShouldSpec({
         every { commentCount(any()) } returns 0
     }
     val nearbySearchService = mockk<NearbySearchService>()
+    val placeListService = mockk<ru.grabovsky.poibot.service.interfaces.PlaceListService>()
+    fun listPage(places: List<SavedPlace>, page: Int, totalPages: Int, total: Long) =
+        ru.grabovsky.poibot.service.interfaces.PlaceListPage(
+            places.map { ru.grabovsky.poibot.service.interfaces.PlaceListEntry(it, RatingSummary.EMPTY) },
+            page, totalPages, total, total,
+        )
     val i18n = KeyI18n()
     val freeMarker = FreeMarkerConfigurer().apply {
         setTemplateLoaderPath("classpath:/message/template")
@@ -55,7 +61,7 @@ class GroupPlacesServiceImplTest : ShouldSpec({
         afterPropertiesSet()
     }
     val service = GroupPlacesServiceImpl(
-        telegramClient, BotConfig("token", "PoiBot"), userService, chatService, publishService, reviewService,
+        telegramClient, BotConfig("token", "PoiBot"), userService, chatService, publishService, placeListService, reviewService,
         nearbySearchService, MessageGenerateServiceImpl(freeMarker), PlaceFormatter(i18n), i18n,
     )
 
@@ -93,8 +99,9 @@ class GroupPlacesServiceImplTest : ShouldSpec({
     fun markupData(markup: Any?): List<String> =
         (markup as InlineKeyboardMarkup).keyboard.flatMap { row -> row.map { it.callbackData ?: it.url } }
 
-    fun callbackOf(data: String, messageChat: Chat = group, messageId: Int = 10): CallbackQuery {
+    fun callbackOf(data: String, messageChat: Chat = group, messageId: Int = 10, replyTo: Int? = null): CallbackQuery {
         val message = mockk<Message> {
+            if (replyTo != null) every { replyToMessage } returns mockk { every { this@mockk.messageId } returns replyTo }
             every { chat } returns messageChat
             every { chatId } returns messageChat.id
             every { this@mockk.messageId } returns messageId
@@ -107,8 +114,8 @@ class GroupPlacesServiceImplTest : ShouldSpec({
     }
 
     should("list published places of the chat as a single reply and remember the member") {
-        every { publishService.listPublished(-100L, 0, any()) } returns
-                SavedPlacePage(listOf(place(1), place(2, "Бар")), 0, 1, 2)
+        every { placeListService.listPublished(-100L, ru.grabovsky.poibot.service.interfaces.PlaceSort.NEW, 0, any()) } returns
+                listPage(listOf(place(1), place(2, "Бар")), 0, 1, 2)
 
         service.showPlaces(group, member, 77)
 
@@ -117,11 +124,12 @@ class GroupPlacesServiceImplTest : ShouldSpec({
         sent.text shouldContain "Места чата"
         sent.text shouldContain "Хмель"
         sent.replyToMessageId shouldBe 77
-        markupData(sent.replyMarkup).map { it.substringAfter("\"data\":\"").substringBefore("\"") } shouldBe listOf("O:1", "O:2")
+        markupData(sent.replyMarkup).map { it.substringAfter("\"data\":\"").substringBefore("\"") } shouldBe listOf("O:1:0:N", "O:2:0:N", "P:0:R")
     }
 
     should("explain how to publish places when nothing is published") {
-        every { publishService.listPublished(-100L, 0, any()) } returns SavedPlacePage(emptyList(), 0, 1, 0)
+        every { placeListService.listPublished(-100L, ru.grabovsky.poibot.service.interfaces.PlaceSort.NEW, 0, any()) } returns
+                listPage(emptyList(), 0, 1, 0)
 
         service.showPlaces(group, member, null)
 
@@ -211,6 +219,7 @@ class GroupPlacesServiceImplTest : ShouldSpec({
     context("callbacks") {
         should("open a card as a reply with a photo and a remove button") {
             every { publishService.getPublished(-100L, 1L) } returns place(1, photo = "file1")
+            every { publishService.canModerate(5L, -100L, any()) } returns true
 
             service.onCallback(callbackOf("O:1"), "O:1")
 
@@ -218,6 +227,16 @@ class GroupPlacesServiceImplTest : ShouldSpec({
             photo.replyToMessageId shouldBe 10
             markupData(photo.replyMarkup).map { it.substringAfter("\"data\":\"").substringBefore("\"") } shouldBe
                     listOf("M:1", "C", "X:1")
+        }
+
+        should("hide the remove button when the user may not moderate the place") {
+            every { publishService.getPublished(-100L, 1L) } returns place(1, photo = "file1")
+            every { publishService.canModerate(5L, -100L, any()) } returns false
+
+            service.onCallback(callbackOf("O:1"), "O:1")
+
+            val photo = executed.filterIsInstance<SendPhoto>().single()
+            markupData(photo.replyMarkup).map { it.substringAfter("\"data\":\"").substringBefore("\"") } shouldBe listOf("M:1", "C")
         }
 
         should("send the place on the map") {
@@ -237,6 +256,17 @@ class GroupPlacesServiceImplTest : ShouldSpec({
             executed.filterIsInstance<AnswerCallbackQuery>().single().text shouldBe "alerts.group.removed"
         }
 
+        should("redraw the list the card was opened from after the removal") {
+            every { publishService.unpublishAsModerator(5L, -100L, 1L) } returns true
+            every { placeListService.listPublished(-100L, ru.grabovsky.poibot.service.interfaces.PlaceSort.RATING, 1, any()) } returns
+                    listPage(listOf(place(9, "Девятый")), 1, 2, 9)
+
+            service.onCallback(callbackOf("X:1:1:R", replyTo = 7), "X:1:1:R")
+
+            executed.filterIsInstance<DeleteMessage>().single().messageId shouldBe 10
+            executed.filterIsInstance<EditMessageText>().single().messageId shouldBe 7
+        }
+
         should("refuse removal for a regular member") {
             every { publishService.unpublishAsModerator(5L, -100L, 1L) } returns false
 
@@ -249,8 +279,8 @@ class GroupPlacesServiceImplTest : ShouldSpec({
         }
 
         should("turn the page by editing the same message") {
-            every { publishService.listPublished(-100L, 1, any()) } returns
-                    SavedPlacePage(listOf(place(9, "Девятый")), 1, 2, 9)
+            every { placeListService.listPublished(-100L, ru.grabovsky.poibot.service.interfaces.PlaceSort.NEW, 1, any()) } returns
+                    listPage(listOf(place(9, "Девятый")), 1, 2, 9)
 
             service.onCallback(callbackOf("P:1"), "P:1")
 
@@ -258,7 +288,21 @@ class GroupPlacesServiceImplTest : ShouldSpec({
             edit.messageId shouldBe 10
             edit.text shouldContain "Девятый"
             markupData(edit.replyMarkup).map { it.substringAfter("\"data\":\"").substringBefore("\"") } shouldBe
-                    listOf("O:9", "P:0")
+                    listOf("O:9:1:N", "P:0:N", "P:0:R")
+        }
+
+        should("sort the group list by rating and show the rating") {
+            val rated = ru.grabovsky.poibot.service.interfaces.PlaceListPage(
+                listOf(ru.grabovsky.poibot.service.interfaces.PlaceListEntry(place(3, "Лучшее"), RatingSummary(4.5, 2))),
+                0, 1, 1, 1,
+            )
+            every { placeListService.listPublished(-100L, ru.grabovsky.poibot.service.interfaces.PlaceSort.RATING, 0, any()) } returns rated
+
+            service.onCallback(callbackOf("P:0:R"), "P:0:R")
+
+            val edit = executed.filterIsInstance<EditMessageText>().single()
+            edit.text shouldContain "⭐ 4.5 (2)"
+            edit.text shouldContain "places.sort_name.rating"
         }
 
         should("recompute nearby result for the chosen radius") {
@@ -299,6 +343,7 @@ class GroupPlacesServiceImplTest : ShouldSpec({
 
     should("add a comments button to a group card when comments exist") {
         every { publishService.getPublished(-100L, 1L) } returns place(1)
+        every { publishService.canModerate(5L, -100L, any()) } returns true
         every { reviewService.commentCount(1L) } returns 2
 
         service.onCallback(callbackOf("O:1"), "O:1")

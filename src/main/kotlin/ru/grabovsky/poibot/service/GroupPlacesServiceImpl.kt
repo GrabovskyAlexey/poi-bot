@@ -45,6 +45,7 @@ class GroupPlacesServiceImpl(
     private val userService: UserService,
     private val chatService: ChatService,
     private val publishService: PublishService,
+    private val placeListService: PlaceListService,
     private val reviewService: ReviewService,
     private val nearbySearchService: NearbySearchService,
     private val messageGenerateService: MessageGenerateService,
@@ -52,17 +53,17 @@ class GroupPlacesServiceImpl(
     private val i18n: I18nService,
 ) : GroupPlacesService {
 
-    private data class ListData(val view: PlacesListView, val items: List<SavedPlace>)
+    private data class ListData(val view: PlacesListView, val items: List<SavedPlace>, val sort: PlaceSort)
 
     override fun showPlaces(chat: Chat, user: User, replyToMessageId: Int?) {
         registerMember(chat, user)
         val locale = localeOf(user)
-        val data = listData(chat.id, 0)
+        val data = listData(chat.id, 0, PlaceSort.NEW, locale)
         val message = SendMessage.builder()
             .chatId(chat.id)
             .text(render("group/list", data.view, locale))
             .parseMode(HTML)
-            .replyMarkup(listMarkup(data))
+            .replyMarkup(listMarkup(data, locale))
             .build()
         replyToMessageId?.let { message.replyToMessageId = it }
         run("send list") { telegramClient.execute(message) }
@@ -131,14 +132,15 @@ class GroupPlacesServiceImpl(
         val parts = data.split(':')
         when (parts[0]) {
             "P" -> {
-                val listData = listData(chat.id, parts.getOrNull(1)?.toIntOrNull() ?: 0)
-                edit(chat.id, message.messageId, render("group/list", listData.view, locale), listMarkup(listData))
+                val sort = if (parts.getOrNull(2) == SORT_RATING) PlaceSort.RATING else PlaceSort.NEW
+                val listData = listData(chat.id, parts.getOrNull(1)?.toIntOrNull() ?: 0, sort, locale)
+                edit(chat.id, message.messageId, render("group/list", listData.view, locale), listMarkup(listData, locale))
                 answer(callbackQuery, null)
             }
 
-            "O" -> openCard(callbackQuery, message, parts.getOrNull(1)?.toLongOrNull(), locale)
+            "O" -> openCard(callbackQuery, message, parts.getOrNull(1)?.toLongOrNull(), listOrigin(parts), locale)
             "M" -> showOnMap(callbackQuery, message, parts.getOrNull(1)?.toLongOrNull())
-            "X" -> remove(callbackQuery, message, parts.getOrNull(1)?.toLongOrNull(), locale)
+            "X" -> remove(callbackQuery, message, parts.getOrNull(1)?.toLongOrNull(), listOrigin(parts), locale)
             "C" -> {
                 deleteMessage(chat.id, message.messageId)
                 answer(callbackQuery, null)
@@ -153,7 +155,11 @@ class GroupPlacesServiceImpl(
 
     // --- действия ----------------------------------------------------------------------------
 
-    private fun openCard(callbackQuery: CallbackQuery, message: Message, placeId: Long?, locale: Locale) {
+    /** Страница и сортировка списка, из которого открыта карточка (`O:<id>:<стр>:<N|R>`); null - открыта не из списка. */
+    private fun listOrigin(parts: List<String>): String? =
+        if (parts.size >= 4) "${parts[2]}:${parts[3]}" else null
+
+    private fun openCard(callbackQuery: CallbackQuery, message: Message, placeId: Long?, origin: String?, locale: Locale) {
         val place = placeId?.let { publishService.getPublished(message.chatId, it) }
             ?: return answer(callbackQuery, i18n.i18n("alerts.place.not_found", locale), alert = true)
         val card = render(
@@ -174,7 +180,9 @@ class GroupPlacesServiceImpl(
                 callbackButton(i18n.i18n("buttons.reviews.comments", locale, null, commentsCount), "CM:${place.placeId}:0")
             )
         }
-        rows += InlineKeyboardRow(callbackButton(i18n.i18n("buttons.group.remove", locale), "X:${place.id}"))
+        if (publishService.canModerate(callbackQuery.from.id, message.chatId, place)) {
+            rows += InlineKeyboardRow(callbackButton(i18n.i18n("buttons.group.remove", locale), "X:${place.id}" + origin?.let { ":$it" }.orEmpty()))
+        }
         val markup = InlineKeyboardMarkup(rows)
         val photo = place.photoFileId
         if (photo != null) {
@@ -204,15 +212,25 @@ class GroupPlacesServiceImpl(
         answer(callbackQuery, null)
     }
 
-    private fun remove(callbackQuery: CallbackQuery, message: Message, placeId: Long?, locale: Locale) {
+    private fun remove(callbackQuery: CallbackQuery, message: Message, placeId: Long?, origin: String?, locale: Locale) {
         val removed = placeId != null &&
                 publishService.unpublishAsModerator(callbackQuery.from.id, message.chatId, placeId)
         if (removed) {
             deleteMessage(message.chatId, message.messageId)
+            refreshList(message, origin, locale)
             answer(callbackQuery, i18n.i18n("alerts.group.removed", locale))
         } else {
             answer(callbackQuery, i18n.i18n("alerts.group.not_allowed", locale), alert = true)
         }
+    }
+
+    /** Карточка - ответ на сообщение со списком: после снятия места перерисовываем его на той же странице. */
+    private fun refreshList(card: Message, origin: String?, locale: Locale) {
+        val parts = origin?.split(':') ?: return
+        val listMessageId = card.replyToMessage?.messageId ?: return
+        val sort = if (parts.getOrNull(1) == SORT_RATING) PlaceSort.RATING else PlaceSort.NEW
+        val data = listData(card.chatId, parts.getOrNull(0)?.toIntOrNull() ?: 0, sort, locale)
+        edit(card.chatId, listMessageId, render("group/list", data.view, locale), listMarkup(data, locale))
     }
 
     /** Комментарии места только для чтения (анонимно): первая страница — ответом, листание правит сообщение. */
@@ -258,28 +276,39 @@ class GroupPlacesServiceImpl(
 
     // --- представления -----------------------------------------------------------------------
 
-    private fun listData(chatId: Long, page: Int): ListData {
-        val result = publishService.listPublished(chatId, page, PAGE_SIZE)
-        val items = result.items.mapIndexed { index, place ->
+    private fun listData(chatId: Long, page: Int, sort: PlaceSort, locale: Locale): ListData {
+        val result = placeListService.listPublished(chatId, sort, page, PAGE_SIZE)
+        val items = result.items.mapIndexed { index, entry ->
+            val place = entry.place
             ListItemView(
                 result.page * PAGE_SIZE + index + 1, place.name, formatter.shorten(place.address, ADDRESS_PREVIEW),
                 hasLocation = place.hasLocation(), hasPhoto = place.photoFileId != null,
+                rating = formatter.rating(entry.rating),
             )
         }
-        return ListData(PlacesListView(items, result.page + 1, result.totalPages, result.totalItems), result.items)
+        val sortName = sort.takeIf { it == PlaceSort.RATING }?.let { i18n.i18n("places.sort_name.rating", locale) }
+        val view = PlacesListView(items, result.page + 1, result.totalPages, result.total, sortName = sortName)
+        return ListData(view, result.items.map { it.place }, sort)
     }
 
-    private fun listMarkup(data: ListData): InlineKeyboardMarkup? {
+    private fun listMarkup(data: ListData, locale: Locale): InlineKeyboardMarkup? {
         val view = data.view
+        val sortCode = if (data.sort == PlaceSort.RATING) SORT_RATING else SORT_NEW
         val rows = mutableListOf<InlineKeyboardRow>()
         data.items.forEachIndexed { index, place ->
             val label = "${view.items[index].index}. ${place.name.take(BUTTON_NAME_LENGTH)}"
-            rows += InlineKeyboardRow(callbackButton(label, "O:${place.id}"))
+            rows += InlineKeyboardRow(callbackButton(label, "O:${place.id}:${view.page - 1}:$sortCode"))
         }
         val nav = mutableListOf<InlineKeyboardButton>()
-        if (view.page > 1) nav += callbackButton("◀", "P:${view.page - 2}")
-        if (view.page < view.totalPages) nav += callbackButton("▶", "P:${view.page}")
+        if (view.page > 1) nav += callbackButton("◀", "P:${view.page - 2}:$sortCode")
+        if (view.page < view.totalPages) nav += callbackButton("▶", "P:${view.page}:$sortCode")
         if (nav.isNotEmpty()) rows += InlineKeyboardRow(nav)
+        if (view.total > 1) {
+            // Кнопка переключает сортировку на другую и возвращает к первой странице
+            val (labelKey, target) =
+                if (data.sort == PlaceSort.RATING) "buttons.group.sort_new" to SORT_NEW else "buttons.group.sort_rating" to SORT_RATING
+            rows += InlineKeyboardRow(callbackButton(i18n.i18n(labelKey, locale), "P:0:$target"))
+        }
         return rows.takeIf { it.isNotEmpty() }?.let { InlineKeyboardMarkup(it) }
     }
 
@@ -370,6 +399,8 @@ class GroupPlacesServiceImpl(
     private companion object {
         val logger = KotlinLogging.logger {}
         const val HTML = "HTML"
+        const val SORT_NEW = "N"
+        const val SORT_RATING = "R"
         const val PAGE_SIZE = 8
         const val BUTTON_NAME_LENGTH = 35
         const val ADDRESS_PREVIEW = 60

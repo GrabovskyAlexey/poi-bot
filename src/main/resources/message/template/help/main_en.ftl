@@ -2,7 +2,7 @@ Available commands:
 
 /start — start using the bot
 ➕ /add — add a place. Fill the fields in any order: use the buttons or just send a location, photo, venue, link or text. Only the name is required.
-📍 /places — your places: card, show on the map, edit, delete and publish to groups
+📍 /places — your places: search, filters and sorting (including by rating), card, show on the map, edit, delete and publish to groups
 🧭 /nearby — send a location and I will show your places nearby; the radius can be changed, and hints tell how many more places are in a larger radius
 🗑 /deleteme — download your data as a file or delete it from the bot completely
 ❓ /help — this help

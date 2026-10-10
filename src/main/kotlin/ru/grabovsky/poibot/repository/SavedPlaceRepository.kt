@@ -15,6 +15,8 @@ interface SavedPlaceRepository : JpaRepository<SavedPlace, Long> {
 
     fun findByIdAndOwnerId(id: Long, ownerId: Long): SavedPlace?
 
+    fun findAllByOwnerIdOrderByCreatedAtDescIdDesc(ownerId: Long): List<SavedPlace>
+
     fun findByOwnerIdOrderByCreatedAtAscIdAsc(ownerId: Long): List<SavedPlace>
 
     @Query("select distinct s.placeId from SavedPlace s where s.ownerId = :ownerId")
@@ -37,10 +39,24 @@ interface SavedPlaceRepository : JpaRepository<SavedPlace, Long> {
     fun findPublishedInChat(@Param("chatId") chatId: Long, pageable: Pageable): Page<SavedPlace>
 
     @Query(
+        "select s from SavedPlace s where s.id in " +
+                "(select c.id.savedPlaceId from SavedPlaceChat c where c.id.chatId = :chatId) " +
+                "order by s.createdAt desc, s.id desc"
+    )
+    fun findAllPublishedInChat(@Param("chatId") chatId: Long): List<SavedPlace>
+
+    @Query(
         "select s from SavedPlace s where s.id = :id and s.id in " +
                 "(select c.id.savedPlaceId from SavedPlaceChat c where c.id.chatId = :chatId)"
     )
     fun findPublishedInChatById(@Param("chatId") chatId: Long, @Param("id") id: Long): SavedPlace?
+
+    /** Все записи об одном месте (`place_id`), опубликованные в чате разными пользователями. */
+    @Query(
+        "select s from SavedPlace s where s.placeId = :placeId and s.id in " +
+                "(select c.id.savedPlaceId from SavedPlaceChat c where c.id.chatId = :chatId)"
+    )
+    fun findPublishedInChatByPlaceId(@Param("chatId") chatId: Long, @Param("placeId") placeId: Long): List<SavedPlace>
 
     @Query(
         "select s from SavedPlace s where s.id in " +
