@@ -24,6 +24,7 @@ import ru.grabovsky.poibot.service.interfaces.PlaceSort
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.shouldNotBe
+import java.time.Instant
 import ru.grabovsky.poibot.geo.SearchRadius
 import ru.grabovsky.poibot.service.NearbySearchServiceImpl
 import ru.grabovsky.poibot.service.PlaceMatchingServiceImpl
@@ -312,6 +313,40 @@ class PlaceRepositoriesIT {
         sharing.accept(2L, token) shouldBe AcceptResult.AlreadySaved
         sharing.accept(1L, token) shouldBe AcceptResult.OwnPlace
         placeRepository.count() shouldBe 1
+    }
+
+    @Test
+    fun shouldExpireAndRevokeShareLinks() {
+        owner(1L)
+        val records = saved()
+        val original = records.create(1L, SavedPlaceDraft(name = "Хмель"))
+        em.flush()
+        em.clear()
+        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records)
+        val token = sharing.getOrCreateToken(1L, original.id!!)!!
+        sharing.expiresAt(token) shouldBe null
+
+        sharing.setExpiry(1L, token, 30) shouldBe true
+        em.flush()
+        em.clear()
+        sharing.expiresAt(token) shouldNotBe null
+        sharing.findShared(token) shouldNotBe null
+
+        // Срок вышел: ссылка не работает, а повторное «Поделиться» выдаёт новую без срока
+        placeShareTokenRepository.findById(token).get().expiresAt = Instant.now().minusSeconds(5)
+        em.flush()
+        em.clear()
+        sharing.findShared(token) shouldBe null
+        val renewed = sharing.getOrCreateToken(1L, original.id!!)!!
+        renewed shouldNotBe token
+        sharing.expiresAt(renewed) shouldBe null
+
+        // Отзыв удаляет ссылку; чужой отозвать не может
+        sharing.revoke(2L, renewed) shouldBe false
+        sharing.revoke(1L, renewed) shouldBe true
+        em.flush()
+        em.clear()
+        sharing.findShared(renewed) shouldBe null
     }
 
     @Test

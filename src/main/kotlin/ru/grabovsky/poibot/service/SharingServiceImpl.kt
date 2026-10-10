@@ -8,6 +8,8 @@ import ru.grabovsky.poibot.repository.PlaceShareTokenRepository
 import ru.grabovsky.poibot.repository.SavedPlaceRepository
 import ru.grabovsky.poibot.service.interfaces.*
 import java.security.SecureRandom
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Base64
 
 @Service
@@ -22,7 +24,12 @@ class SharingServiceImpl(
     @Transactional
     override fun getOrCreateToken(ownerId: Long, savedPlaceId: Long): String? {
         savedPlaceRepository.findByIdAndOwnerId(savedPlaceId, ownerId) ?: return null
-        tokenRepository.findBySavedPlaceId(savedPlaceId)?.let { return it.token }
+        tokenRepository.findBySavedPlaceId(savedPlaceId)?.let {
+            if (!it.isExpired()) return it.token
+            // На запись приходится одна ссылка (unique), поэтому просроченную убираем до создания новой
+            tokenRepository.delete(it)
+            tokenRepository.flush()
+        }
         return tokenRepository.save(
             PlaceShareToken(token = newToken(), savedPlaceId = savedPlaceId, createdBy = ownerId)
         ).token
@@ -32,8 +39,30 @@ class SharingServiceImpl(
     override fun findShared(token: String): SavedPlace? {
         if (!TOKEN_FORMAT.matches(token)) return null
         val shared = tokenRepository.findById(token).orElse(null) ?: return null
+        if (shared.isExpired()) return null
         return savedPlaceRepository.findById(shared.savedPlaceId).orElse(null)
     }
+
+    @Transactional(readOnly = true)
+    override fun expiresAt(token: String): Instant? = tokenRepository.findById(token).orElse(null)?.expiresAt
+
+    @Transactional
+    override fun setExpiry(ownerId: Long, token: String, days: Int?): Boolean {
+        val shared = ownToken(ownerId, token) ?: return false
+        shared.expiresAt = days?.let { Instant.now().plus(it.toLong(), ChronoUnit.DAYS) }
+        tokenRepository.save(shared)
+        return true
+    }
+
+    @Transactional
+    override fun revoke(ownerId: Long, token: String): Boolean {
+        val shared = ownToken(ownerId, token) ?: return false
+        tokenRepository.delete(shared)
+        return true
+    }
+
+    private fun ownToken(ownerId: Long, token: String): PlaceShareToken? =
+        tokenRepository.findById(token).orElse(null)?.takeIf { it.createdBy == ownerId }
 
     @Transactional
     override fun accept(userId: Long, token: String): AcceptResult {

@@ -9,6 +9,7 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import ru.grabovsky.poibot.config.BotConfig
 import ru.grabovsky.poibot.entity.SavedPlace
 import ru.grabovsky.poibot.service.interfaces.AcceptResult
@@ -19,6 +20,8 @@ import ru.grabovsky.poibot.strategy.flow.places.PlaceFormatter
 import ru.grabovsky.poibot.strategy.flow.shared.SharedFlow
 import ru.grabovsky.poibot.strategy.flow.shared.SharedOutView
 import ru.grabovsky.poibot.strategy.flow.shared.SharedState
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.*
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.message.Message
@@ -85,6 +88,7 @@ class SharedFlowTest : ShouldSpec({
     should("send the share link for an own place") {
         every { savedPlaces.get(2L, 5L) } returns place.copy(ownerId = 2L)
         every { sharing.getOrCreateToken(2L, 5L) } returns "tok"
+        every { sharing.expiresAt("tok") } returns null
 
         val result = flow.start(FlowStartContext(tgUser, locale, "OUT:5"))
 
@@ -93,7 +97,10 @@ class SharedFlowTest : ShouldSpec({
         view.link shouldBe "https://t.me/PoiBot?start=sp_tok"
         view.name shouldBe "Хмель"
         val buttons = send.message.inlineButtons
-        buttons.map { it.text } shouldBe listOf("buttons.shared.send", "buttons.places.close")
+        buttons.map { it.text } shouldBe listOf(
+            "buttons.shared.send", "buttons.shared.ttl.0_on", "buttons.shared.ttl.1", "buttons.shared.ttl.7",
+            "buttons.shared.ttl.30", "buttons.shared.revoke", "buttons.places.close",
+        )
         val shareUrl = buttons.first().url
         shareUrl shouldBe "https://t.me/share/url?url=https%3A%2F%2Ft.me%2FPoiBot%3Fstart%3Dsp_tok&text=shared.message"
     }
@@ -155,6 +162,70 @@ class SharedFlowTest : ShouldSpec({
         result.shouldNotBeNull().actions.filterIsInstance<SendVenueAction>().single().latitude shouldBe 55.0
     }
 
+    should("show the share link without expiry by default and mark the active period") {
+        every { savedPlaces.get(2L, 5L) } returns place.copy(ownerId = 2L)
+        every { sharing.getOrCreateToken(2L, 5L) } returns "tok"
+        every { sharing.expiresAt("tok") } returns null
+
+        val message = flow.start(FlowStartContext(tgUser, locale, "OUT:5"))
+            .actions.single().shouldBeInstanceOf<SendMessageAction>().message
+
+        message.model.shouldBeInstanceOf<SharedOutView>().expiresText shouldBe null
+        message.inlineButtons.mapNotNull { it.payload?.data }.shouldContain("TTL:tok:7")
+        message.inlineButtons.map { it.text }.shouldContain("buttons.shared.ttl.0_on")
+        message.inlineButtons.map { it.text }.shouldContain("buttons.shared.ttl.7")
+    }
+
+    should("set the link period and redraw the link message") {
+        every { sharing.setExpiry(2L, "tok", 7) } returns true
+        every { sharing.findShared("tok") } returns place
+        every { sharing.expiresAt("tok") } returns Instant.now().plus(7, ChronoUnit.DAYS)
+
+        val result = flow.onCallback(ctx(), callback(), "TTL:tok:7")
+
+        val edit = result.shouldNotBeNull().actions.filterIsInstance<EditCardAction>().single()
+        edit.messageId shouldBe 33
+        edit.message.model.shouldBeInstanceOf<SharedOutView>().expiresText.shouldNotBeNull()
+        edit.message.inlineButtons.map { it.text }.shouldContain("buttons.shared.ttl.7_on")
+    }
+
+    should("pass no days when the period is reset to unlimited") {
+        every { sharing.setExpiry(2L, "tok", null) } returns true
+        every { sharing.findShared("tok") } returns place
+        every { sharing.expiresAt("tok") } returns null
+
+        flow.onCallback(ctx(), callback(), "TTL:tok:0").shouldNotBeNull()
+
+        verify { sharing.setExpiry(2L, "tok", null) }
+    }
+
+    should("refuse to change a foreign link and ignore unknown periods") {
+        every { sharing.setExpiry(2L, "tok", 1) } returns false
+
+        val result = flow.onCallback(ctx(), callback(), "TTL:tok:1")
+
+        result.shouldNotBeNull().actions.filterIsInstance<EditCardAction>().size shouldBe 0
+        flow.onCallback(ctx(), callback(), "TTL:tok:5") shouldBe null
+    }
+
+    should("revoke the link, remove the message and confirm") {
+        every { sharing.revoke(2L, "tok") } returns true
+
+        val result = flow.onCallback(ctx(), callback(), "REVOKE:tok")
+
+        val actions = result.shouldNotBeNull().actions
+        actions.shouldContain(DeleteMessageIdAction(33))
+        actions.filterIsInstance<SendMessageAction>().single().message.stepKey shouldBe "revoked"
+    }
+
+    should("not revoke a foreign link") {
+        every { sharing.revoke(2L, "tok") } returns false
+
+        val result = flow.onCallback(ctx(), callback(), "REVOKE:tok")
+
+        result.shouldNotBeNull().actions.filterIsInstance<SendMessageAction>().size shouldBe 0
+    }
+
     should("close the card by deleting its message") {
         val result = flow.onCallback(ctx(), callback(), "CLOSE")
 
@@ -164,6 +235,7 @@ class SharedFlowTest : ShouldSpec({
     should("send a new link message when Share is pressed and the flow already has a state") {
         every { savedPlaces.get(2L, 5L) } returns place.copy(ownerId = 2L)
         every { sharing.getOrCreateToken(2L, 5L) } returns "tok"
+        every { sharing.expiresAt("tok") } returns null
 
         val result = flow.onCallback(ctx(), callback(), "OUT:5")
 
@@ -175,6 +247,7 @@ class SharedFlowTest : ShouldSpec({
     should("only acknowledge the callback that immediately follows a restart") {
         every { savedPlaces.get(2L, 5L) } returns place.copy(ownerId = 2L)
         every { sharing.getOrCreateToken(2L, 5L) } returns "tok"
+        every { sharing.expiresAt("tok") } returns null
         val started = flow.start(FlowStartContext(tgUser, locale, "OUT:5"))
         started.payload.fresh shouldBe true
 

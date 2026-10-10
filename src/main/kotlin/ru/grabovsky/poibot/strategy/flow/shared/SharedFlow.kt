@@ -14,12 +14,17 @@ import ru.grabovsky.poibot.strategy.flow.core.engine.*
 import ru.grabovsky.poibot.strategy.flow.core.support.buildMessage
 import ru.grabovsky.poibot.strategy.flow.places.PlaceCardView
 import ru.grabovsky.poibot.strategy.flow.places.PlaceFormatter
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.*
 
 enum class SharedStep(override val key: String) : FlowStep {
     IN("in"),
     OUT("out"),
     SAVED("saved"),
+    REVOKED("revoked"),
     INVALID("invalid"),
 }
 
@@ -31,7 +36,7 @@ data class SharedState(
 )
 
 /** Модель шаблона `shared/out`. */
-data class SharedOutView(val name: String, val link: String)
+data class SharedOutView(val name: String, val link: String, val expiresText: String? = null)
 
 /** Модель шаблона `shared/saved`. */
 data class SharedSavedView(val name: String)
@@ -68,7 +73,8 @@ class SharedFlow(
                 ?.also { it.payload.fresh = true } ?: invalid(locale)
 
             // Кнопка старого сообщения без состояния: обработает onCallback
-            args.startsWith("SAVE:") || args.startsWith("MAP:") || args == "CLOSE" ->
+            args.startsWith("SAVE:") || args.startsWith("MAP:") || args.startsWith("TTL:") ||
+                    args.startsWith("REVOKE:") || args == "CLOSE" ->
                 FlowResult(SharedStep.IN.key, SharedState(), emptyList())
 
             else -> invalid(locale)
@@ -120,6 +126,35 @@ class SharedFlow(
             }
 
             "CLOSE" -> listOfNotNull(cardMessageId?.let { DeleteMessageIdAction(it) }, answer)
+
+            "TTL" -> {
+                val parts = argument?.split(':').orEmpty()
+                val token = parts.getOrNull(0) ?: return null
+                val days = parts.getOrNull(1)?.toIntOrNull()?.takeIf { it in TTL_DAYS } ?: return null
+                val place = sharingService.takeIf { it.setExpiry(callbackQuery.from.id, token, days.takeIf { d -> d > 0 }) }
+                    ?.findShared(token)
+                if (place == null || cardMessageId == null) {
+                    listOf(alert(callbackQuery, "alerts.shared.invalid_link", locale))
+                } else {
+                    listOf(
+                        EditCardAction(cardMessageId, outMessage(token, place.name, locale, sharingService.expiresAt(token)), false),
+                        answer,
+                    )
+                }
+            }
+
+            "REVOKE" -> {
+                val token = argument ?: return null
+                if (sharingService.revoke(callbackQuery.from.id, token)) {
+                    listOfNotNull(
+                        cardMessageId?.let { DeleteMessageIdAction(it) },
+                        SendMessageAction(null, revokedMessage()),
+                        answer,
+                    )
+                } else {
+                    listOf(alert(callbackQuery, "alerts.shared.invalid_link", locale))
+                }
+            }
 
             "OUT" -> {
                 if (state.fresh) {
@@ -175,22 +210,41 @@ class SharedFlow(
     private fun outResult(userId: Long, placeId: Long?, locale: Locale): FlowResult<SharedState>? {
         val place = placeId?.let { savedPlaceService.get(userId, it) } ?: return null
         val token = sharingService.getOrCreateToken(userId, place.id!!) ?: return null
-        return outgoing(token, place.name, locale)
-    }
-
-    private fun outgoing(token: String, name: String, locale: Locale): FlowResult<SharedState> {
-        val link = "https://t.me/${botConfig.name}?start=${SharingService.START_PREFIX}$token"
-        val message = key.buildMessage(
-            step = SharedStep.OUT,
-            model = SharedOutView(name = name, link = link),
-            inlineButtons = listOf(
-                FlowInlineButton.link(i18n.i18n("buttons.shared.send", locale), shareUrl(link, name, locale), 0, 0),
-                button("buttons.places.close", locale, "CLOSE", FlowInlineButton.LAST_ROW, 0),
-            ),
-            parseMode = FlowParseMode.HTML,
-        )
+        val message = outMessage(token, place.name, locale, sharingService.expiresAt(token))
         return FlowResult(SharedStep.OUT.key, SharedState(token), listOf(SendMessageAction(MAIN_BINDING, message)))
     }
+
+    /** Сообщение со ссылкой: кнопка отправки, выбор срока (отмечен текущий), отзыв ссылки. */
+    private fun outMessage(token: String, name: String, locale: Locale, expiresAt: Instant?): FlowMessage {
+        val link = "https://t.me/${botConfig.name}?start=${SharingService.START_PREFIX}$token"
+        val active = activeDays(expiresAt)
+        return key.buildMessage(
+            step = SharedStep.OUT,
+            model = SharedOutView(name = name, link = link, expiresText = expiresAt?.let(::formatExpiry)),
+            inlineButtons = buildList {
+                add(FlowInlineButton.link(i18n.i18n("buttons.shared.send", locale), shareUrl(link, name, locale), 0, 0))
+                TTL_DAYS.forEachIndexed { index, days ->
+                    val textKey = "buttons.shared.ttl.$days" + if (days == active) "_on" else ""
+                    add(button(textKey, locale, "TTL:$token:$days", 1, index))
+                }
+                add(button("buttons.shared.revoke", locale, "REVOKE:$token", 2, 0))
+                add(button("buttons.places.close", locale, "CLOSE", FlowInlineButton.LAST_ROW, 0))
+            },
+            parseMode = FlowParseMode.HTML,
+        )
+    }
+
+    /** Какой из вариантов срока соответствует дате (срок ставится от момента нажатия, поэтому берём ближайший сверху). */
+    private fun activeDays(expiresAt: Instant?): Int {
+        if (expiresAt == null) return 0
+        val left = Duration.between(Instant.now(), expiresAt)
+        return TTL_DAYS.filter { it > 0 }.firstOrNull { left <= Duration.ofDays(it.toLong()) } ?: TTL_DAYS.last()
+    }
+
+    private fun formatExpiry(expiresAt: Instant): String = EXPIRY_FORMAT.format(expiresAt.atZone(EXPIRY_ZONE))
+
+    private fun revokedMessage(): FlowMessage =
+        key.buildMessage(step = SharedStep.REVOKED, parseMode = FlowParseMode.HTML, autoDeleteAfterSeconds = TEMP_VISIBLE_SECONDS)
 
     /** Ссылка t.me/share/url открывает выбор чата Telegram с уже подставленным текстом и ссылкой. */
     private fun shareUrl(link: String, name: String, locale: Locale): String {
@@ -228,5 +282,10 @@ class SharedFlow(
         const val MAIN_BINDING = "main"
         const val MAX_DESCRIPTION = 600
         const val TEMP_VISIBLE_SECONDS = 10
+
+        /** Варианты срока ссылки в днях; 0 - без срока (по умолчанию). */
+        val TTL_DAYS = listOf(0, 1, 7, 30)
+        val EXPIRY_ZONE: ZoneId = ZoneId.of("Europe/Moscow")
+        val EXPIRY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
     }
 }
