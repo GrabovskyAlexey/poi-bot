@@ -26,6 +26,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.Keyboard
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow
 import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException
 import org.telegram.telegrambots.meta.generics.TelegramClient
+import ru.grabovsky.poibot.service.interfaces.ChatCleanupPolicy
 import ru.grabovsky.poibot.strategy.flow.core.engine.*
 import ru.grabovsky.poibot.strategy.flow.core.templating.FlowTemplateRenderer
 import ru.grabovsky.poibot.util.TelegramLogUtils
@@ -40,6 +41,7 @@ class TelegramFlowActionExecutor(
     private val objectMapper: ObjectMapper,
     private val templateRenderer: FlowTemplateRenderer,
     private val scheduler: ScheduledExecutorService = defaultScheduler(),
+    private val cleanup: ChatCleanupPolicy = ChatCleanupPolicy { true },
 ) : FlowActionExecutor {
     override fun execute(
         user: User,
@@ -209,6 +211,7 @@ class TelegramFlowActionExecutor(
     /** Временные сообщения (подтверждения) удаляются сами, чтобы не засорять чат. */
     private fun scheduleDeletion(chatId: Long, messageId: Int, message: FlowMessage) {
         val seconds = message.autoDeleteAfterSeconds ?: return
+        if (!cleanup.enabled(chatId)) return
         scheduler.schedule({
             runCatching {
                 telegramClient.execute(DeleteMessages.builder().chatId(chatId).messageIds(listOf(messageId)).build())
@@ -233,7 +236,7 @@ class TelegramFlowActionExecutor(
     }
 
     private fun renderMessage(message: FlowMessage, locale: Locale): String =
-        templateRenderer.render(message.flowKey, message.stepKey, locale, message.model)
+        templateRenderer.render(message.flowKey, message.stepKey, message.locale ?: locale, message.model)
 
     private fun buildSendMessage(chatId: Long, text: String, message: FlowMessage): SendMessage {
         val sendMessage = SendMessage.builder()

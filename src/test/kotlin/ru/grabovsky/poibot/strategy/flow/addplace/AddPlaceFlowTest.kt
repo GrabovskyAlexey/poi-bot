@@ -109,6 +109,74 @@ class AddPlaceFlowTest : ShouldSpec({
         state.lon shouldBe 37.0
     }
 
+    should("set the personal status directly and clear it by pressing the active one again") {
+        val state = AddPlaceState(name = "Хмель")
+
+        flow.onCallback(context(state), callback(), "STATUS:BEEN")
+        state.status shouldBe "BEEN"
+        flow.onCallback(context(state), callback(), "STATUS:WANT")
+        state.status shouldBe "WANT"
+        flow.onCallback(context(state), callback(), "STATUS:WANT")
+        state.status shouldBe null
+    }
+
+    should("parse tags typed after the tags button and keep an invalid input as a prompt") {
+        val state = AddPlaceState(name = "Хмель", awaitingField = "tags")
+
+        flow.onMessage(context(state), message(text = "#Бар, Крафт"))
+        state.tags shouldBe listOf("бар", "крафт")
+
+        state.awaitingField = "tags"
+        val invalid = flow.onMessage(context(state), message(text = "a b c d e f"))
+        invalid.shouldNotBeNull()
+        state.tags shouldBe listOf("бар", "крафт")
+        state.awaitingField shouldBe "tags"
+    }
+
+    should("append typed tags to the existing ones without duplicates") {
+        val state = AddPlaceState(name = "Хмель", awaitingField = "tags", tags = mutableListOf("пиво", "бар"))
+
+        flow.onMessage(context(state), message(text = "#Чешский бар"))
+
+        state.tags shouldBe listOf("пиво", "бар", "чешский")
+    }
+
+    should("save the note typed after the note button") {
+        val state = AddPlaceState(name = "Хмель", awaitingField = "note")
+
+        flow.onMessage(context(state), message(text = "Брать столик у окна"))
+
+        state.note shouldBe "Брать столик у окна"
+    }
+
+    should("suggest the user's popular tags first and add a picked suggestion") {
+        every { savedPlaceService.popularTags(7L) } returns listOf("вино", "бар")
+        val state = AddPlaceState(name = "Хмель", tags = mutableListOf("вино"))
+
+        flow.onCallback(context(state), callback(), "FIELD:tags")
+        // «вино» уже выбрано, остаётся «бар», а затем стартовый набор (в тесте i18n возвращает ключ)
+        state.tagSuggestions shouldBe listOf("бар", "tags.defaults")
+
+        val picked = flow.onCallback(context(state), callback(), "TAG:0")
+
+        picked.shouldNotBeNull()
+        state.tags shouldBe listOf("вино", "бар")
+        state.awaitingField shouldBe null
+    }
+
+    should("pass the personal fields to the saved record") {
+        val draft = slot<SavedPlaceDraft>()
+        every { savedPlaceService.create(7L, capture(draft), null) } returns
+                SavedPlace(id = 1L, ownerId = 7L, placeId = 1L, name = "Хмель")
+        val state = AddPlaceState(name = "Хмель", status = "WANT", note = "Столик у окна", tags = mutableListOf("бар"))
+
+        flow.onCallback(context(state), callback(), "SAVE")
+
+        draft.captured.status shouldBe "WANT"
+        draft.captured.note shouldBe "Столик у окна"
+        draft.captured.tags shouldBe listOf("бар")
+    }
+
     should("recognize a link and put it into the website") {
         val state = AddPlaceState(name = "Хмель")
 

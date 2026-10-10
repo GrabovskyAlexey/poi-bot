@@ -33,7 +33,9 @@ abstract class AbstractCommand(
             return
         }
         super.processMessage(telegramClient, message, arguments)
-        deleteCommandMessage(telegramClient, message)
+        if (userService.getUser(message.from.id)?.profile?.settings?.cleanChat != false) {
+            deleteCommandMessage(telegramClient, message)
+        }
     }
 
     override fun execute(

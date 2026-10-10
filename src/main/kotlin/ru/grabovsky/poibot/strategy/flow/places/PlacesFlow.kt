@@ -3,6 +3,7 @@ package ru.grabovsky.poibot.strategy.flow.places
 import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.message.Message
+import ru.grabovsky.poibot.entity.PlaceStatus
 import ru.grabovsky.poibot.service.interfaces.I18nService
 import ru.grabovsky.poibot.service.interfaces.PlaceListPage
 import ru.grabovsky.poibot.service.interfaces.PlaceListQuery
@@ -19,10 +20,15 @@ data class PlacesState(
     var sort: String = PlaceSort.NEW.name,
     var withLocation: Boolean = false,
     var withPhoto: Boolean = false,
+    var tag: String? = null,
+    /** Фильтр по личному статусу ([ru.grabovsky.poibot.entity.PlaceStatus.name]). */
+    var status: String? = null,
+    /** Теги, предложенные в выборе фильтра (кнопки несут индекс из-за лимита callback-данных). */
+    var tagChoices: MutableList<String> = mutableListOf(),
     /** Ждём текст поиска от пользователя. */
     var awaitingSearch: Boolean = false,
 ) {
-    fun toQuery() = PlaceListQuery(query, PlaceSort.valueOf(sort), withLocation, withPhoto)
+    fun toQuery() = PlaceListQuery(query, PlaceSort.valueOf(sort), withLocation, withPhoto, tag, status)
 }
 
 data class ListItemView(
@@ -49,6 +55,8 @@ data class PlacesListView(
     val withLocation: Boolean = false,
     val withPhoto: Boolean = false,
     val sortName: String? = null,
+    val tag: String? = null,
+    val statusText: String? = null,
 )
 
 /** Модель шаблона `places/confirm_delete`. */
@@ -128,8 +136,42 @@ class PlacesFlow(
                 state.query = null
                 state.withLocation = false
                 state.withPhoto = false
+                state.tag = null
+                state.status = null
                 state.page = 0
                 listOf(EditMessageAction(LIST_BINDING, listMessage(userId, state, locale)), answer)
+            }
+
+            "FSTAT" -> {
+                val target = PlaceStatus.fromCode(argument) ?: return null
+                state.status = PlaceStatus.toggle(PlaceStatus.fromCode(state.status), target)?.name
+                state.page = 0
+                listOf(EditMessageAction(LIST_BINDING, listMessage(userId, state, locale)), answer)
+            }
+
+            "FTAG" -> {
+                state.tagChoices = savedPlaceService.popularTags(userId).take(MAX_TAG_CHOICES).toMutableList()
+                if (state.tagChoices.isEmpty()) {
+                    listOf(answer)
+                } else {
+                    listOf(
+                        DeleteMessageAction(PROMPT_BINDING),
+                        SendMessageAction(PROMPT_BINDING, tagChoiceMessage(state, locale)),
+                        answer,
+                    )
+                }
+            }
+
+            "TAGF" -> {
+                val tag = argument?.toIntOrNull()?.let { state.tagChoices.getOrNull(it) }
+                    ?: return notFound(state, callbackQuery, locale)
+                state.tag = tag.takeIf { it != state.tag }
+                state.page = 0
+                listOf(
+                    DeleteMessageAction(PROMPT_BINDING),
+                    EditMessageAction(LIST_BINDING, listMessage(userId, state, locale)),
+                    answer,
+                )
             }
 
             "FLOC" -> {
@@ -165,6 +207,16 @@ class PlacesFlow(
             }
 
             "CLOSE" -> listOf(DeleteMessageAction(CARD_BINDING), answer)
+
+            "STATUS" -> {
+                val parts = argument?.split(':')
+                val target = PlaceStatus.fromCode(parts?.getOrNull(1)) ?: return null
+                val place = parts?.getOrNull(0)?.toLongOrNull()?.let { savedPlaceService.toggleStatus(userId, it, target) }
+                    ?: return notFound(state, callbackQuery, locale)
+                val cardId = callbackQuery.message?.messageId ?: return null
+                // Личный статус виден в карточке и меняется списком фильтров, поэтому обновляем карточку на месте
+                listOf(cardFactory.refreshAction(CardRef(cardId, place.id!!, PlaceCardFactory.OWNER_PLACES), place, locale), answer)
+            }
 
             "DELASK" -> {
                 val place = id?.let { savedPlaceService.get(userId, it) } ?: return notFound(state, callbackQuery, locale)
@@ -228,6 +280,15 @@ class PlacesFlow(
             buttons += control(filterKey("buttons.places.filter_location", query.withLocation), locale, "FLOC", row, 0)
             buttons += control(filterKey("buttons.places.filter_photo", query.withPhoto), locale, "FPHOTO", row, 1)
             row++
+            PlaceStatus.entries.forEachIndexed { index, status ->
+                buttons += control(PlaceStatus.buttonKey(status, status.name == query.status), locale, "FSTAT:${status.name}", row, index)
+            }
+            row++
+            if (page.tags.isNotEmpty()) {
+                val tagLabel = query.tag?.let { i18n.i18n("buttons.places.filter_tag_on", locale, null, it) }
+                    ?: i18n.i18n("buttons.places.filter_tag", locale)
+                buttons += FlowInlineButton(tagLabel, FlowCallbackPayload(key.value, "FTAG"), row++, 0)
+            }
             if (query.filtered) {
                 buttons += control("buttons.places.reset", locale, "RESET", row++, 0)
             }
@@ -243,12 +304,21 @@ class PlacesFlow(
                 items, page.page + 1, page.totalPages, page.total,
                 filtered = query.filtered, query = query.text?.trim()?.takeIf { it.isNotEmpty() },
                 withLocation = query.withLocation, withPhoto = query.withPhoto,
+                tag = query.tag,
+                statusText = PlaceStatus.fromCode(query.status)?.let { i18n.i18n("status.${it.name.lowercase()}", locale) },
                 sortName = query.sort.takeIf { it != PlaceSort.NEW }
                     ?.let { i18n.i18n("places.sort_name.${it.name.lowercase()}", locale) },
             ),
             inlineButtons = buttons,
             parseMode = FlowParseMode.HTML,
         )
+    }
+
+    private fun tagChoiceMessage(state: PlacesState, locale: Locale): FlowMessage {
+        val buttons = state.tagChoices.mapIndexed { index, tag ->
+            FlowInlineButton(if (tag == state.tag) "✅ #$tag" else "#$tag", FlowCallbackPayload(key.value, "TAGF:$index"), index / 2, index % 2)
+        } + control("buttons.common.cancel", locale, "SCANCEL", state.tagChoices.size / 2 + 1, 0)
+        return key.buildMessage(step = PlacesStep.TAG_PROMPT, inlineButtons = buttons, parseMode = FlowParseMode.HTML)
     }
 
     private fun searchPromptMessage(locale: Locale): FlowMessage =
@@ -282,6 +352,7 @@ class PlacesFlow(
         const val LIST_BINDING = "list"
         const val CARD_BINDING = "card"
         const val PROMPT_BINDING = "prompt"
+        const val MAX_TAG_CHOICES = 12
         const val MAX_QUERY_LENGTH = 50
         const val PAGE_SIZE = 8
         const val BUTTON_NAME_LENGTH = 40
