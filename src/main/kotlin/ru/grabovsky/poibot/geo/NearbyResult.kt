@@ -2,7 +2,8 @@ package ru.grabovsky.poibot.geo
 
 import ru.grabovsky.poibot.entity.SavedPlace
 
-data class NearbyPoint(val place: SavedPlace, val distanceMeters: Int)
+/** [fromGroup] - место чужой записи из группы пользователя (а не его собственное). */
+data class NearbyPoint(val place: SavedPlace, val distanceMeters: Int, val fromGroup: Boolean = false)
 
 /** Сводка по большему радиусу: сколько точек добавляется к уже показанным. */
 data class RadiusHint(val radius: SearchRadius, val extra: Int, val total: Int)

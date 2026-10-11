@@ -59,6 +59,7 @@ class SettingsFlow(
             "LANG" -> profile.locale = nextLanguage(profile.locale)
             "RADIUS" -> profile.settings.searchRadiusMeters = nextRadius(profile.settings.searchRadiusMeters)
             "CLEAN" -> profile.settings.cleanChat = !profile.settings.cleanChat
+            "GROUPS" -> profile.settings.nearbyGroups = !profile.settings.nearbyGroups
             else -> return null
         }
         userService.saveUser(user)
@@ -72,12 +73,14 @@ class SettingsFlow(
         val language = user?.profile?.locale
         val radius = SearchRadius.fromMeters(settings?.searchRadiusMeters).meters
         val clean = settings?.cleanChat ?: true
+        val groups = settings?.nearbyGroups ?: true
         return key.buildMessage(
             step = SettingsStep.MAIN,
             inlineButtons = listOf(
                 button(i18n.i18n("buttons.settings.language", locale, null, i18n.i18n("settings.language.${language ?: "auto"}", locale)), "LANG", 0),
                 button(i18n.i18n("buttons.settings.radius", locale, null, radius.toString()), "RADIUS", 1),
                 button(i18n.i18n("buttons.settings.clean.${if (clean) "on" else "off"}", locale), "CLEAN", 2),
+                button(i18n.i18n("buttons.settings.groups.${if (groups) "on" else "off"}", locale), "GROUPS", 3),
                 button(i18n.i18n("buttons.places.close", locale), "CLOSE", FlowInlineButton.LAST_ROW),
             ),
             parseMode = FlowParseMode.HTML,

@@ -6,6 +6,9 @@ import io.kotest.core.spec.style.ShouldSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import ru.grabovsky.poibot.entity.UserSettings
+import io.kotest.matchers.collections.shouldNotContain
+import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
@@ -265,7 +268,8 @@ class PlaceFlowsTest : ShouldSpec({
         val search = mockk<NearbySearchService>()
         val savedPlaces = mockk<SavedPlaceService>()
         val userService = mockk<UserService>(relaxed = true)
-        val flow = NearbyFlow(search, savedPlaces, userService, cardFactory, formatter, i18n)
+        val sharing = mockk<SharingService>()
+        val flow = NearbyFlow(search, savedPlaces, sharing, userService, cardFactory, formatter, i18n)
         val entityUser = User(7L, "A", null, "a").apply {
             profile = UserProfile(userId = 7L, user = this)
         }
@@ -297,7 +301,7 @@ class PlaceFlowsTest : ShouldSpec({
             val points = listOf(80, 300, 350, 480, 600, 900).map {
                 NearbyPoint(place(it.toLong(), "p$it"), it)
             }
-            every { search.searchOwn(7L, 55.0, 37.0, SearchRadius.M250) } returns
+            every { search.searchOwn(7L, 55.0, 37.0, SearchRadius.M250, any()) } returns
                     NearbyResult.build(points, SearchRadius.M250)
 
             val result = flow.onMessage(ctx(NearbyState()), locationMessage())
@@ -311,9 +315,53 @@ class PlaceFlowsTest : ShouldSpec({
             result.actions.shouldContain(DeleteMessageIdAction(77))
         }
 
+        should("mark places from groups and open their card with a save button") {
+            every { userService.getUser(7L) } returns entityUser
+            val groupPlace = place(31, "Из группы").copy(ownerId = 99L)
+            every { search.searchOwn(7L, 55.0, 37.0, SearchRadius.M250, true) } returns
+                    NearbyResult.build(listOf(NearbyPoint(groupPlace, 120, fromGroup = true)), SearchRadius.M250)
+
+            val result = flow.onMessage(ctx(NearbyState()), locationMessage())
+
+            val send = result.shouldNotBeNull().actions.filterIsInstance<SendMessageAction>().last()
+            send.message.model.shouldBeInstanceOf<ru.grabovsky.poibot.strategy.flow.nearby.NearbyView>().hasGroup shouldBe true
+            send.message.inlineButtons.first().text shouldContain "👥"
+
+            every { savedPlaces.get(7L, 31L) } returns null
+            every { search.findInUserGroups(7L, 31L) } returns groupPlace
+            val card = flow.onCallback(ctx(NearbyState(55.0, 37.0, 250)), callback(), "OPEN:31")
+
+            val buttons = card.shouldNotBeNull().actions.filterIsInstance<SendMessageAction>().single().message.inlineButtons
+            buttons.map { it.payload.data } shouldContain "SAVE:31"
+            buttons.map { it.payload.data } shouldNotContain "EDIT:31:N:120"
+        }
+
+        should("not search groups when the user turned it off") {
+            val off = User(7L, "A", null, "a").apply {
+                profile = UserProfile(userId = 7L, user = this, settings = UserSettings(nearbyGroups = false))
+            }
+            every { userService.getUser(7L) } returns off
+            every { search.searchOwn(7L, 55.0, 37.0, SearchRadius.M250, false) } returns
+                    NearbyResult.build(emptyList(), SearchRadius.M250)
+
+            flow.onMessage(ctx(NearbyState()), locationMessage()).shouldNotBeNull()
+
+            io.mockk.verify { search.searchOwn(7L, 55.0, 37.0, SearchRadius.M250, false) }
+        }
+
+        should("save a group place through the sharing service and report the outcome") {
+            every { sharing.acceptPublished(7L, 31L) } returns AcceptResult.AlreadySaved
+
+            val result = flow.onCallback(ctx(NearbyState(55.0, 37.0, 250)), callback(), "SAVE:31")
+
+            val answer = result.shouldNotBeNull().actions.filterIsInstance<AnswerCallbackAction>().single()
+            answer.text shouldBe "alerts.shared.already_saved"
+            answer.showAlert shouldBe true
+        }
+
         should("show results at once when started with coordinates") {
             every { userService.getUser(7L) } returns entityUser
-            every { search.searchOwn(7L, 55.0, 37.0, any()) } returns NearbyResult.build(emptyList(), SearchRadius.M250)
+            every { search.searchOwn(7L, 55.0, 37.0, any(), any()) } returns NearbyResult.build(emptyList(), SearchRadius.M250)
 
             val result = flow.start(FlowStartContext(tgUser, locale, "LOC:55.0:37.0"))
 
@@ -324,7 +372,7 @@ class PlaceFlowsTest : ShouldSpec({
 
         should("persist the radius chosen by the user") {
             every { userService.getUser(7L) } returns entityUser
-            every { search.searchOwn(7L, 55.0, 37.0, SearchRadius.M500) } returns
+            every { search.searchOwn(7L, 55.0, 37.0, SearchRadius.M500, any()) } returns
                     NearbyResult.build(emptyList(), SearchRadius.M500)
 
             val result = flow.onCallback(ctx(NearbyState(55.0, 37.0, 250)), callback(), "R:500")

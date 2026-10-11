@@ -45,6 +45,12 @@ interface SharingService {
      */
     fun accept(userId: Long, token: String): AcceptResult
 
+    /**
+     * Сохраняет копию записи, опубликованной в группе пользователя (карточка в `/nearby`), как и [accept] по ссылке.
+     * [AcceptResult.NotFound], если записи нет среди опубликованных в его группах.
+     */
+    fun acceptPublished(userId: Long, savedPlaceId: Long): AcceptResult
+
     companion object {
         /** Префикс параметра deep link: `/start sp_<token>`. */
         const val START_PREFIX = "sp_"

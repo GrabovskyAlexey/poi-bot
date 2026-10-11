@@ -15,6 +15,7 @@ import ru.grabovsky.poibot.entity.SavedPlace
 import ru.grabovsky.poibot.repository.PlaceShareTokenRepository
 import ru.grabovsky.poibot.repository.SavedPlaceRepository
 import ru.grabovsky.poibot.service.interfaces.AcceptResult
+import ru.grabovsky.poibot.service.interfaces.NearbySearchService
 import ru.grabovsky.poibot.service.interfaces.PlaceLimitExceededException
 import ru.grabovsky.poibot.service.interfaces.SavedPlaceDraft
 import ru.grabovsky.poibot.service.interfaces.SavedPlaceService
@@ -26,7 +27,8 @@ class SharingServiceImplTest : ShouldSpec({
     val tokens = mockk<PlaceShareTokenRepository>()
     val places = mockk<SavedPlaceRepository>()
     val savedPlaceService = mockk<SavedPlaceService>()
-    val service = SharingServiceImpl(tokens, places, savedPlaceService)
+    val nearby = mockk<NearbySearchService>()
+    val service = SharingServiceImpl(tokens, places, savedPlaceService, nearby)
 
     val validToken = "abcdefghijklmnopqrstuv"
     val source = SavedPlace(
@@ -34,7 +36,7 @@ class SharingServiceImplTest : ShouldSpec({
         websiteUrl = "https://khmel.ru", photoFileId = "photo", photoFileUniqueId = "u", lat = 55.0, lon = 37.0,
     )
 
-    beforeTest { clearMocks(tokens, places, savedPlaceService) }
+    beforeTest { clearMocks(tokens, places, savedPlaceService, nearby) }
 
     fun knownToken() {
         every { tokens.findById(validToken) } returns Optional.of(PlaceShareToken(validToken, 5L, 1L))
@@ -146,6 +148,29 @@ class SharingServiceImplTest : ShouldSpec({
             service.revoke(1L, validToken) shouldBe true
 
             verify { tokens.delete(token) }
+        }
+    }
+
+    context("acceptPublished") {
+        should("copy a place published in the user's group") {
+            every { nearby.findInUserGroups(2L, 5L) } returns source
+            every { places.existsByOwnerIdAndPlaceId(2L, 77L) } returns false
+            every { savedPlaceService.create(2L, any(), 77L) } returns SavedPlace(id = 9L, ownerId = 2L, placeId = 77L, name = "Хмель")
+
+            service.acceptPublished(2L, 5L).shouldBeInstanceOf<AcceptResult.Saved>()
+        }
+
+        should("refuse a place that is not visible in the user's groups") {
+            every { nearby.findInUserGroups(2L, 5L) } returns null
+
+            service.acceptPublished(2L, 5L) shouldBe AcceptResult.NotFound
+        }
+
+        should("not duplicate a place the user already has") {
+            every { nearby.findInUserGroups(2L, 5L) } returns source
+            every { places.existsByOwnerIdAndPlaceId(2L, 77L) } returns true
+
+            service.acceptPublished(2L, 5L) shouldBe AcceptResult.AlreadySaved
         }
     }
 

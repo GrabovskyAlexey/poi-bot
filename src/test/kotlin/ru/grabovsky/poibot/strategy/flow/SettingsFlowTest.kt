@@ -44,7 +44,7 @@ class SettingsFlowTest : ShouldSpec({
 
         result.stepKey shouldBe "main"
         val message = result.actions.single().shouldBeInstanceOf<SendMessageAction>().message
-        message.inlineButtons.map { it.payload.data } shouldBe listOf("LANG", "RADIUS", "CLEAN", "CLOSE")
+        message.inlineButtons.map { it.payload.data } shouldBe listOf("LANG", "RADIUS", "CLEAN", "GROUPS", "CLOSE")
     }
 
     should("cycle the language auto - ru - en - auto") {
@@ -78,8 +78,11 @@ class SettingsFlowTest : ShouldSpec({
         flow.onCallback(context(), callback(), "RADIUS")
         flow.onCallback(context(), callback(), "CLEAN")
 
+        flow.onCallback(context(), callback(), "GROUPS")
+
         stored.profile!!.settings.searchRadiusMeters shouldBe 500
         stored.profile!!.settings.cleanChat shouldBe false
+        stored.profile!!.settings.nearbyGroups shouldBe false
     }
 
     should("close by deleting the message and ignore unknown buttons") {

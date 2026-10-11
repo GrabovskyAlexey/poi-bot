@@ -17,6 +17,7 @@ class SharingServiceImpl(
     private val tokenRepository: PlaceShareTokenRepository,
     private val savedPlaceRepository: SavedPlaceRepository,
     private val savedPlaceService: SavedPlaceService,
+    private val nearbySearchService: NearbySearchService,
 ) : SharingService {
 
     private val random = SecureRandom()
@@ -67,6 +68,16 @@ class SharingServiceImpl(
     @Transactional
     override fun accept(userId: Long, token: String): AcceptResult {
         val source = findShared(token) ?: return AcceptResult.NotFound
+        return copyFor(userId, source)
+    }
+
+    @Transactional
+    override fun acceptPublished(userId: Long, savedPlaceId: Long): AcceptResult {
+        val source = nearbySearchService.findInUserGroups(userId, savedPlaceId) ?: return AcceptResult.NotFound
+        return copyFor(userId, source)
+    }
+
+    private fun copyFor(userId: Long, source: SavedPlace): AcceptResult {
         if (source.ownerId == userId) return AcceptResult.OwnPlace
         if (savedPlaceRepository.existsByOwnerIdAndPlaceId(userId, source.placeId)) return AcceptResult.AlreadySaved
         val draft = SavedPlaceDraft(

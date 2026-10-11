@@ -131,7 +131,7 @@ class PlaceRepositoriesIT {
         em.flush()
         em.clear()
 
-        val result = NearbySearchServiceImpl(savedPlaceRepository)
+        val result = NearbySearchServiceImpl(savedPlaceRepository, userChatRepository)
             .searchOwn(1L, 55.7501, 37.6201, SearchRadius.M100)
 
         result.points.map { it.place.name } shouldBe listOf("Близко")
@@ -146,7 +146,7 @@ class PlaceRepositoriesIT {
         em.flush()
         em.clear()
 
-        val result = NearbySearchServiceImpl(savedPlaceRepository).searchOwn(1L, 55.75, 37.62, SearchRadius.M100)
+        val result = NearbySearchServiceImpl(savedPlaceRepository, userChatRepository).searchOwn(1L, 55.75, 37.62, SearchRadius.M100)
 
         result.points shouldHaveSize 0
     }
@@ -239,10 +239,39 @@ class PlaceRepositoriesIT {
         publish.listPublished(-20L, 0, 8).items shouldHaveSize 0
         publish.getPublished(-10L, second.id!!) shouldBe null
         publish.publishedCounts(listOf(first.id!!, second.id!!), listOf(-10L, -20L)) shouldBe mapOf(-10L to 1)
-        val nearby = NearbySearchServiceImpl(savedPlaceRepository)
+        val nearby = NearbySearchServiceImpl(savedPlaceRepository, userChatRepository)
         nearby.searchInChat(-10L, 55.7500, 37.6200, SearchRadius.M100).points.map { it.place.name } shouldBe
             listOf("Опубликовано")
         nearby.searchInChat(-20L, 55.7500, 37.6200, SearchRadius.M100).points shouldHaveSize 0
+    }
+
+    @Test
+    fun shouldFindGroupPlacesNearbyOnlyForMembers() {
+        owner(1L)
+        owner(2L)
+        owner(3L)
+        group(-10L, 1L)
+        em.entityManager.createNativeQuery("insert into poi_bot.user_chat (user_id, chat_id) values (2, -10)").executeUpdate()
+        val records = saved()
+        val mine = records.create(1L, SavedPlaceDraft(name = "Моё", lat = 55.7501, lon = 37.6201))
+        val shared = records.create(2L, SavedPlaceDraft(name = "Из группы", lat = 55.7500, lon = 37.6200))
+        val hidden = records.create(2L, SavedPlaceDraft(name = "Не опубликовано", lat = 55.7500, lon = 37.6200))
+        em.flush()
+        em.clear()
+        publishService().setPublished(2L, listOf(shared.id!!), -10L, true)
+        em.flush()
+        em.clear()
+        val nearby = NearbySearchServiceImpl(savedPlaceRepository, userChatRepository)
+
+        val result = nearby.searchOwn(1L, 55.7500, 37.6200, SearchRadius.M250, includeGroups = true)
+
+        result.points.map { it.place.name to it.fromGroup } shouldBe listOf("Из группы" to true, "Моё" to false)
+        nearby.searchOwn(1L, 55.7500, 37.6200, SearchRadius.M250).points.map { it.place.name } shouldBe listOf("Моё")
+        nearby.findInUserGroups(1L, shared.id!!)?.name shouldBe "Из группы"
+        nearby.findInUserGroups(1L, hidden.id!!) shouldBe null
+        nearby.findInUserGroups(3L, shared.id!!) shouldBe null
+        nearby.searchOwn(3L, 55.7500, 37.6200, SearchRadius.M250, includeGroups = true).points shouldHaveSize 0
+        mine.id!! shouldNotBe null
     }
 
     @Test
@@ -295,7 +324,7 @@ class PlaceRepositoriesIT {
         val original = records.create(1L, SavedPlaceDraft(name = "Хмель", description = "Крафт", lat = 55.75, lon = 37.62))
         em.flush()
         em.clear()
-        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records)
+        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records, NearbySearchServiceImpl(savedPlaceRepository, userChatRepository))
 
         val token = sharing.getOrCreateToken(1L, original.id!!)!!
 
@@ -322,7 +351,7 @@ class PlaceRepositoriesIT {
         val original = records.create(1L, SavedPlaceDraft(name = "Хмель"))
         em.flush()
         em.clear()
-        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records)
+        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records, NearbySearchServiceImpl(savedPlaceRepository, userChatRepository))
         val token = sharing.getOrCreateToken(1L, original.id!!)!!
         sharing.expiresAt(token) shouldBe null
 
@@ -356,7 +385,7 @@ class PlaceRepositoriesIT {
         val original = records.create(1L, SavedPlaceDraft(name = "Удалю"))
         em.flush()
         em.clear()
-        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records)
+        val sharing = SharingServiceImpl(placeShareTokenRepository, savedPlaceRepository, records, NearbySearchServiceImpl(savedPlaceRepository, userChatRepository))
         val token = sharing.getOrCreateToken(1L, original.id!!)!!
         em.flush()
 
@@ -572,7 +601,7 @@ class PlaceRepositoriesIT {
         val page = list.listPublished(-41L, PlaceSort.RATING, 0, 8)
         page.total shouldBe 2
         page.items.first().rating.count shouldBe 2
-        NearbySearchServiceImpl(savedPlaceRepository).searchInChat(-41L, 55.7500, 37.6200, SearchRadius.M100)
+        NearbySearchServiceImpl(savedPlaceRepository, userChatRepository).searchInChat(-41L, 55.7500, 37.6200, SearchRadius.M100)
             .points shouldHaveSize 2
     }
 

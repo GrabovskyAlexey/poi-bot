@@ -71,6 +71,27 @@ interface SavedPlaceRepository : JpaRepository<SavedPlace, Long> {
         @Param("maxLon") maxLon: Double,
     ): List<SavedPlace>
 
+    /** Записи, опубликованные в любой из чатов, внутри прямоугольника; точное расстояние считает вызывающий код. */
+    @Query(
+        "select s from SavedPlace s where s.id in " +
+                "(select c.id.savedPlaceId from SavedPlaceChat c where c.id.chatId in :chatIds) " +
+                "and s.lat between :minLat and :maxLat and s.lon between :minLon and :maxLon"
+    )
+    fun findPublishedInChatsBox(
+        @Param("chatIds") chatIds: Collection<Long>,
+        @Param("minLat") minLat: Double,
+        @Param("maxLat") maxLat: Double,
+        @Param("minLon") minLon: Double,
+        @Param("maxLon") maxLon: Double,
+    ): List<SavedPlace>
+
+    /** Запись по id, если она опубликована хотя бы в одном из чатов. */
+    @Query(
+        "select s from SavedPlace s where s.id = :id and s.id in " +
+                "(select c.id.savedPlaceId from SavedPlaceChat c where c.id.chatId in :chatIds)"
+    )
+    fun findPublishedInChatsById(@Param("chatIds") chatIds: Collection<Long>, @Param("id") id: Long): SavedPlace?
+
     /** Предфильтр по прямоугольнику; точное расстояние считает вызывающий код. */
     @Query(
         "select s from SavedPlace s where s.ownerId = :ownerId " +

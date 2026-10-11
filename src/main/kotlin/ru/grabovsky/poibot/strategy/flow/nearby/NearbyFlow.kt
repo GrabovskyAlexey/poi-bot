@@ -5,9 +5,11 @@ import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.message.Message
 import ru.grabovsky.poibot.geo.NearbyResult
 import ru.grabovsky.poibot.geo.SearchRadius
+import ru.grabovsky.poibot.service.interfaces.AcceptResult
 import ru.grabovsky.poibot.service.interfaces.I18nService
 import ru.grabovsky.poibot.service.interfaces.NearbySearchService
 import ru.grabovsky.poibot.service.interfaces.SavedPlaceService
+import ru.grabovsky.poibot.service.interfaces.SharingService
 import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.*
 import ru.grabovsky.poibot.strategy.flow.core.support.buildMessage
@@ -28,7 +30,7 @@ data class NearbyState(
     var radiusMeters: Int = SearchRadius.DEFAULT.meters,
 )
 
-data class PointView(val index: Int, val name: String, val distanceText: String)
+data class PointView(val index: Int, val name: String, val distanceText: String, val group: Boolean = false)
 
 data class HintView(val radiusText: String, val extra: Int, val total: Int)
 
@@ -39,6 +41,8 @@ data class NearbyView(
     val hints: List<HintView>,
     val nothingAnywhere: Boolean,
     val hiddenCount: Int,
+    /** Среди показанных есть места из групп (в шаблоне поясняется значок 👥). */
+    val hasGroup: Boolean = false,
 )
 
 /** Модель шаблона `nearby/radius`. */
@@ -52,6 +56,7 @@ data class RadiusView(val currentText: String)
 class NearbyFlow(
     private val nearbySearchService: NearbySearchService,
     private val savedPlaceService: SavedPlaceService,
+    private val sharingService: SharingService,
     private val userService: UserService,
     private val cardFactory: PlaceCardFactory,
     private val formatter: PlaceFormatter,
@@ -128,14 +133,34 @@ class NearbyFlow(
             "BACK" -> listOf(EditMessageAction(RESULT_BINDING, resultMessage(userId, state, locale)), answer)
 
             "OPEN" -> {
-                val place = id?.let { savedPlaceService.get(userId, it) } ?: return null
-                val distance = distanceFromUser(state, place.lat, place.lon)
-                listOf<FlowAction>(DeleteMessageAction(CARD_BINDING)) +
-                        cardFactory.cardActions(key, place, locale, CARD_BINDING, manage = false, distanceMeters = distance) + answer
+                val own = id?.let { savedPlaceService.get(userId, it) }
+                val distance = distanceFromUser(state, own?.lat, own?.lon)
+                if (own != null) {
+                    listOf<FlowAction>(DeleteMessageAction(CARD_BINDING)) +
+                            cardFactory.cardActions(key, own, locale, CARD_BINDING, manage = false, distanceMeters = distance) + answer
+                } else {
+                    val group = id?.let { nearbySearchService.findInUserGroups(userId, it) } ?: return null
+                    listOf<FlowAction>(DeleteMessageAction(CARD_BINDING)) +
+                            cardFactory.groupCardActions(
+                                key, group, locale, CARD_BINDING, distanceFromUser(state, group.lat, group.lon),
+                            ) + answer
+                }
+            }
+
+            "SAVE" -> {
+                val result = id?.let { sharingService.acceptPublished(userId, it) } ?: return null
+                val text = when (result) {
+                    is AcceptResult.Saved -> i18n.i18n("alerts.nearby.saved", locale, null, result.place.name)
+                    AcceptResult.AlreadySaved -> i18n.i18n("alerts.shared.already_saved", locale)
+                    AcceptResult.OwnPlace -> i18n.i18n("alerts.shared.own_place", locale)
+                    AcceptResult.LimitReached -> i18n.i18n("alerts.add.limit", locale)
+                    AcceptResult.NotFound -> i18n.i18n("alerts.place.not_found", locale)
+                }
+                listOf(AnswerCallbackAction(callbackQuery.id, text, showAlert = true))
             }
 
             "MAP" -> {
-                val place = id?.let { savedPlaceService.get(userId, it) } ?: return null
+                val place = id?.let { savedPlaceService.get(userId, it) ?: nearbySearchService.findInUserGroups(userId, it) } ?: return null
                 listOf(
                     SendVenueAction(null, place.name, place.address, place.lat ?: return null, place.lon ?: return null),
                     answer,
@@ -151,16 +176,17 @@ class NearbyFlow(
 
     private fun resultMessage(userId: Long, state: NearbyState, locale: Locale): FlowMessage {
         val selected = SearchRadius.fromMeters(state.radiusMeters)
-        val result = nearbySearchService.searchOwn(userId, state.lat!!, state.lon!!, selected)
+        val result = nearbySearchService.searchOwn(userId, state.lat!!, state.lon!!, selected, includeGroups(userId))
         val shown = result.points.take(MAX_SHOWN)
         val view = NearbyView(
             radiusText = formatter.distance(selected.meters, locale),
             points = shown.mapIndexed { index, point ->
-                PointView(index + 1, point.place.name, formatter.distance(point.distanceMeters, locale))
+                PointView(index + 1, point.place.name, formatter.distance(point.distanceMeters, locale), point.fromGroup)
             },
             hints = result.hints.map { HintView(formatter.distance(it.radius.meters, locale), it.extra, it.total) },
             nothingAnywhere = result.points.isEmpty() && result.hints.isEmpty(),
             hiddenCount = result.points.size - shown.size,
+            hasGroup = shown.any { it.fromGroup },
         )
         return key.buildMessage(
             step = NearbyStep.RESULT,
@@ -178,7 +204,8 @@ class NearbyFlow(
         val buttons = mutableListOf<FlowInlineButton>()
         var row = 0
         shown.forEachIndexed { index, point ->
-            val label = "${index + 1}. ${point.place.name.take(BUTTON_NAME_LENGTH)} · ${formatter.distance(point.distanceMeters, locale)}"
+            val mark = if (point.fromGroup) "👥 " else ""
+            val label = "${index + 1}. $mark${point.place.name.take(BUTTON_NAME_LENGTH)} · ${formatter.distance(point.distanceMeters, locale)}"
             buttons += FlowInlineButton(label, FlowCallbackPayload(key.value, "OPEN:${point.place.id}"), row++)
         }
         result.hints.forEach { hint ->
@@ -228,6 +255,9 @@ class NearbyFlow(
 
     private fun savedRadius(userId: Long): Int =
         SearchRadius.fromMeters(userService.getUser(userId)?.profile?.settings?.searchRadiusMeters).meters
+
+    private fun includeGroups(userId: Long): Boolean =
+        userService.getUser(userId)?.profile?.settings?.nearbyGroups ?: true
 
     private fun saveRadius(userId: Long, radius: SearchRadius) {
         val user = userService.getUser(userId) ?: return

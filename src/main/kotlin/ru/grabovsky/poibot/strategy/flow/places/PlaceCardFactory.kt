@@ -69,6 +69,44 @@ class PlaceCardFactory(
         )
     }
 
+    /**
+     * Карточка места из группы пользователя (чужая запись): без личных полей владельца и без правки; карта,
+     * комментарии, «Сохранить себе» (`SAVE:<id>` в flow [owner]) и закрытие.
+     */
+    fun groupCardActions(owner: FlowKey, place: SavedPlace, locale: Locale, binding: String, distanceMeters: Int?): List<FlowAction> {
+        val id = place.id!!
+        val buttons = buildList {
+            if (place.hasLocation()) add(button(owner, "buttons.places.map", locale, "MAP:$id", 0, 0))
+            add(button(owner, "buttons.shared.save", locale, "SAVE:$id", 0, 1))
+            val comments = reviewService.commentCount(place.placeId)
+            if (comments > 0) {
+                add(
+                    FlowInlineButton(
+                        i18n.i18n("buttons.reviews.comments", locale, null, comments),
+                        FlowCallbackPayload(FlowKeys.REVIEWS.value, "COM:${place.placeId}:0"), 1, 0,
+                    )
+                )
+            }
+            add(button(owner, "buttons.places.close", locale, "CLOSE", FlowInlineButton.LAST_ROW, 0))
+        }
+        val message = FlowMessage(
+            flowKey = FlowKeys.PLACES,
+            stepKey = PlacesStep.CARD.key,
+            model = PlaceCardView(
+                name = place.name,
+                address = place.address,
+                description = formatter.shorten(place.description, MAX_DESCRIPTION),
+                website = place.websiteUrl,
+                distanceText = distanceMeters?.let { formatter.distance(it, locale) },
+                rating = formatter.rating(reviewService.summary(place.placeId)),
+            ),
+            inlineButtons = buttons,
+            parseMode = FlowParseMode.HTML,
+        )
+        val photo = place.photoFileId
+        return listOf(if (photo != null) SendPhotoAction(binding, photo, message) else SendMessageAction(binding, message))
+    }
+
     /** Обновлённое содержимое уже показанной карточки [ref] (после оценки, комментария, смены места). */
     fun refreshAction(ref: CardRef, place: SavedPlace, locale: Locale): FlowAction {
         val owner = if (ref.owner == OWNER_NEARBY) FlowKeys.NEARBY else FlowKeys.PLACES
