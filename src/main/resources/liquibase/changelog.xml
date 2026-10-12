@@ -9,5 +9,6 @@
     <include file="liquibase/mvp/changelog.xml"/>
     <include file="liquibase/personal/changelog.xml"/>
     <include file="liquibase/sharelinks/changelog.xml"/>
+    <include file="liquibase/stats/changelog.xml"/>
 
 </databaseChangeLog>

@@ -94,6 +94,9 @@ class PlaceRepositoriesIT {
     @Autowired
     lateinit var flowStateRepository: FlowStateRepository
 
+    @Autowired
+    lateinit var jdbc: org.springframework.jdbc.core.JdbcTemplate
+
     private fun owner(id: Long) = em.persistAndFlush(User(id, "Test", null, "test$id"))
 
     private fun saved() = SavedPlaceServiceImpl(savedPlaceRepository, placeRepository)
@@ -603,6 +606,36 @@ class PlaceRepositoriesIT {
         page.items.first().rating.count shouldBe 2
         NearbySearchServiceImpl(savedPlaceRepository, userChatRepository).searchInChat(-41L, 55.7500, 37.6200, SearchRadius.M100)
             .points shouldHaveSize 2
+    }
+
+    @Test
+    fun shouldCollectStatsAndActivityHistory() {
+        owner(1L)
+        owner(2L)
+        saved().create(1L, SavedPlaceDraft(name = "Хмель", lat = 55.75, lon = 37.62))
+        em.flush()
+        val activity = UserActivityRepository(jdbc)
+        val today = java.time.LocalDate.now(ru.grabovsky.poibot.stats.STATS_ZONE)
+        activity.touch(1L, today)
+        activity.touch(1L, today) // повторная отметка ничего не меняет
+        activity.touch(1L, today.minusDays(8))
+        activity.touch(2L, today.minusDays(40))
+
+        val snapshot = ru.grabovsky.poibot.service.StatsServiceImpl(StatsRepository(jdbc), activity).snapshot()
+
+        snapshot.audience.total shouldBe 2
+        snapshot.audience.withPlaces shouldBe 1
+        snapshot.audience.new1 shouldBe 2
+        snapshot.audience.active1 shouldBe 1
+        snapshot.audience.active7 shouldBe 1
+        snapshot.audience.active30 shouldBe 1
+        snapshot.content.savedPlaces shouldBe 1
+        snapshot.content.uniquePlaces shouldBe 1
+        snapshot.weeks shouldHaveSize 8
+        snapshot.weeks.last().newUsers shouldBe 2
+        snapshot.weeks.last().newPlaces shouldBe 1
+        snapshot.weeks.last().activeUsers shouldBe 1
+        jdbc.queryForObject("SELECT COUNT(*) FROM poi_bot.user_activity_day WHERE user_id = 1", Long::class.java) shouldBe 2
     }
 
     companion object {

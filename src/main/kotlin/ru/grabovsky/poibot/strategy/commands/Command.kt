@@ -3,7 +3,9 @@ package ru.grabovsky.poibot.strategy.commands
 enum class Command(
     val command: String,
     val text: String,
-    val order: Int
+    val order: Int,
+    /** Скрытая команда работает, но не показывается в меню бота. */
+    val hidden: Boolean = false,
 ) {
     START("start", "🟢 Начать пользоваться ботом", 1),
     ADD("add", "➕ Добавить место", 2),
@@ -11,5 +13,6 @@ enum class Command(
     NEARBY("nearby", "🧭 Найти рядом", 4),
     SETTINGS("settings", "⚙️ Настройки", 80),
     DELETE_ME("deleteme", "🗑 Удалить мои данные", 90),
-    HELP("help", "❓ Помощь", 99);
+    HELP("help", "❓ Помощь", 99),
+    ADMIN("admin", "📊 Администратор", 100, hidden = true);
 }

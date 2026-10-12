@@ -14,7 +14,9 @@ import org.telegram.telegrambots.meta.generics.TelegramClient
 import ru.grabovsky.poibot.config.BotConfig
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.ReceiverService
+import ru.grabovsky.poibot.service.interfaces.UnknownCommandService
 import ru.grabovsky.poibot.service.interfaces.UserService
+import org.telegram.telegrambots.meta.api.objects.message.Message
 import ru.grabovsky.poibot.strategy.commands.AbstractCommand
 import ru.grabovsky.poibot.strategy.commands.Command
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowEngine
@@ -27,6 +29,7 @@ class BotTest : ShouldSpec({
     val userService = mockk<UserService>(relaxed = true)
     val flowEngine = mockk<FlowEngine>(relaxed = true)
     val chatService = mockk<ChatService>(relaxed = true)
+    val unknownCommandService = mockk<UnknownCommandService>(relaxed = true)
 
     val firstCommand = object : AbstractCommand(Command.HELP, FlowKeys.HELP, userService, flowEngine, chatService) {}
     val secondCommand = object : AbstractCommand(Command.START, FlowKeys.START, userService, flowEngine, chatService) {}
@@ -38,7 +41,7 @@ class BotTest : ShouldSpec({
 
         every { telegramClient.execute(capture(commandSlot)) } returns true
 
-        val bot = Bot(config, telegramClient, receiverService, commands)
+        val bot = Bot(config, telegramClient, receiverService, unknownCommandService, commands)
 
         bot.botToken shouldBe "token"
         bot.updatesConsumer shouldBe bot
@@ -57,9 +60,34 @@ class BotTest : ShouldSpec({
 
         every { telegramClient.execute(any<SetMyCommands>()) } returns true
 
-        val bot = Bot(config, telegramClient, receiverService, commands)
+        val bot = Bot(config, telegramClient, receiverService, unknownCommandService, commands)
         bot.processNonCommandUpdate(update)
 
         verify { receiverService.execute(update) }
+    }
+
+    should("answer unknown commands itself instead of passing them to flows") {
+        io.mockk.clearMocks(receiverService, unknownCommandService)
+        every { telegramClient.execute(any<SetMyCommands>()) } returns true
+        val message = mockk<Message>()
+        val update = mockk<Update> {
+            every { this@mockk.message } returns message
+        }
+
+        Bot(BotConfig(token = "t", name = "name"), telegramClient, receiverService, unknownCommandService, listOf(secondCommand))
+            .processInvalidCommandUpdate(update)
+
+        verify { unknownCommandService.reply(message) }
+        verify(exactly = 0) { receiverService.execute(any()) }
+    }
+
+    should("not put hidden commands into the bot menu") {
+        val commandSlot = slot<SetMyCommands>()
+        every { telegramClient.execute(capture(commandSlot)) } returns true
+        val hidden = object : AbstractCommand(Command.ADMIN, FlowKeys.ADMIN, userService, flowEngine, chatService) {}
+
+        Bot(BotConfig(token = "t", name = "name"), telegramClient, receiverService, unknownCommandService, listOf(secondCommand, hidden))
+
+        commandSlot.captured.commands.map { it.command } shouldBe listOf("start")
     }
 })

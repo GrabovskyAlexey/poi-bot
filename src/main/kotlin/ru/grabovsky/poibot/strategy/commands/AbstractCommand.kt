@@ -20,6 +20,8 @@ abstract class AbstractCommand(
     private val flowEngine: FlowEngine,
     private val chatService: ChatService,
     val sortOrder: Int = command.order,
+    /** Показывать ли команду в меню бота (`SetMyCommands`). */
+    val listed: Boolean = !command.hidden,
 ) : BotCommand(command.command, command.text), BotCommands {
 
     override fun prepare(user: User, chat: Chat, arguments: Array<out String>) {
