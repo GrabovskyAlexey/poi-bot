@@ -10,4 +10,6 @@
 <b>Note:</b> <#if data.note??>${data.note?html}<#else>—</#if>
 <b>Status:</b> <#if data.statusText??>${data.statusText}<#else>—</#if>
 
-<i>Fill in the fields in any order: use the buttons or just send the bot a location, photo, venue, link or text. Only the name is required.</i>
+<i>Fill in the fields in any order: use the buttons or just send the bot a location, photo, venue, link or text. Only the name is required.
+
+💡 You can send a place link from Yandex Maps, Google Maps or 2GIS (“Share” → copy link): the bot will fill in the name, address and location, as far as it can.</i>

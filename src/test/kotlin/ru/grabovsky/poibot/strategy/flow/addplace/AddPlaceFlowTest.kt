@@ -33,10 +33,14 @@ class AddPlaceFlowTest : ShouldSpec({
     val matching = mockk<PlaceMatchingService>()
     val i18n = KeyI18n()
     val cardFactory = mockk<ru.grabovsky.poibot.strategy.flow.places.PlaceCardFactory>()
-    val flow = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, cardFactory, io.micrometer.core.instrument.simple.SimpleMeterRegistry())
+    val mapImport = mockk<MapLinkImportService>()
+    val flow = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, cardFactory, io.micrometer.core.instrument.simple.SimpleMeterRegistry(), mapImport)
     val tgUser = mockk<TgUser> { every { id } returns 7L }
 
-    beforeTest { clearMocks(savedPlaceService, matching) }
+    beforeTest {
+        clearMocks(savedPlaceService, matching, mapImport)
+        every { mapImport.import(any()) } returns null
+    }
 
     fun context(state: AddPlaceState, bindings: Map<String, Int> = mapOf("form" to 10)) =
         FlowContext(tgUser, locale, FlowStateHolder(AddPlaceStep.FORM.key, state, bindings))
@@ -183,6 +187,32 @@ class AddPlaceFlowTest : ShouldSpec({
         flow.onMessage(context(state), message(text = "khmel.ru"))
 
         state.websiteUrl shouldBe "https://khmel.ru"
+    }
+
+    should("fill empty fields and location from a map link") {
+        every { mapImport.import("https://maps.app.goo.gl/x") } returns
+                ru.grabovsky.poibot.maps.MapImport("Crosby Coffee", "проезд Шокальского, 45, Москва", 55.88, 37.65)
+        val state = AddPlaceState()
+
+        flow.onMessage(context(state), message(text = "https://maps.app.goo.gl/x")).shouldNotBeNull()
+
+        state.name shouldBe "Crosby Coffee"
+        state.address shouldBe "проезд Шокальского, 45, Москва"
+        state.lat shouldBe 55.88
+        state.lon shouldBe 37.65
+        state.websiteUrl shouldBe null
+    }
+
+    should("keep filled name and address but update the location from a map link") {
+        every { mapImport.import(any()) } returns ru.grabovsky.poibot.maps.MapImport("Другое", "Другой адрес", 1.0, 2.0)
+        val state = AddPlaceState(name = "Хмель", address = "Мой адрес", lat = 55.0, lon = 37.0)
+
+        flow.onMessage(context(state), message(text = "https://go.2gis.com/abc")).shouldNotBeNull()
+
+        state.name shouldBe "Хмель"
+        state.address shouldBe "Мой адрес"
+        state.lat shouldBe 1.0
+        state.lon shouldBe 2.0
     }
 
     should("ask which field to use when text is ambiguous") {
@@ -336,7 +366,7 @@ class AddPlaceFlowTest : ShouldSpec({
 
     should("count shown and rejected candidates for the duplicate-places metric") {
         val registry = io.micrometer.core.instrument.simple.SimpleMeterRegistry()
-        val metered = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, cardFactory, registry)
+        val metered = AddPlaceFlow(savedPlaceService, matching, PlaceFormatter(i18n), i18n, cardFactory, registry, mapImport)
         val state = AddPlaceState(name = "Хмель", lat = 55.0, lon = 37.0)
         every { matching.findCandidates(55.0, 37.0, "Хмель") } returns listOf(PlaceCandidate(5L, "Хмель", null, 10, 1.0))
         every { savedPlaceService.create(7L, any(), null) } returns SavedPlace(id = 1L, ownerId = 7L, placeId = 9L, name = "Хмель")
