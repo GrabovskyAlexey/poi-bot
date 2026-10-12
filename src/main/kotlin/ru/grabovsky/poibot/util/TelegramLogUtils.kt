@@ -27,6 +27,7 @@ object TelegramLogUtils {
                 "Update(chatMember: userId=${member.from.id}, chatId=${member.chat.id}, " +
                 "oldStatus=${member.oldChatMember.status}, newStatus=${member.newChatMember.status})"
             }
+            update.hasInlineQuery() -> "Update(inlineQuery: userId=${update.inlineQuery.from.id}, query='${update.inlineQuery.query.take(100)}')"
             update.hasEditedMessage() -> "Update(editedMessage: ${formatMessage(update.editedMessage)})"
             update.hasChannelPost() -> {
                 val post = update.channelPost

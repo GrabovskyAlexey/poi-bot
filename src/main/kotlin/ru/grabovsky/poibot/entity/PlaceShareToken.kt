@@ -18,4 +18,9 @@ data class PlaceShareToken(
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: Instant? = null,
-)
+    /** Когда ссылка перестаёт работать; null - без срока. */
+    @Column(name = "expires_at")
+    var expiresAt: Instant? = null,
+) {
+    fun isExpired(now: Instant = Instant.now()): Boolean = expiresAt?.isBefore(now) == true
+}
