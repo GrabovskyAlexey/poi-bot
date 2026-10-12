@@ -12,6 +12,7 @@ import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberUpdated
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.FlowStateService
 import ru.grabovsky.poibot.service.interfaces.GroupPlacesService
+import ru.grabovsky.poibot.service.interfaces.InlineShareService
 import ru.grabovsky.poibot.service.interfaces.ReceiverService
 import ru.grabovsky.poibot.service.interfaces.UserService
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowCallbackPayload
@@ -30,6 +31,7 @@ class ReceiverServiceImpl(
     private val flowStateService: FlowStateService,
     private val chatService: ChatService,
     private val groupPlacesService: GroupPlacesService,
+    private val inlineShareService: InlineShareService,
 ) : ReceiverService {
 
     override fun execute(update: Update) {
@@ -38,6 +40,7 @@ class ReceiverServiceImpl(
                 update.hasCallbackQuery() -> processCallback(update.callbackQuery)
                 update.hasMessage() -> processMessage(update.message)
                 update.hasMyChatMember() -> processMyChatMember(update.myChatMember)
+                update.hasInlineQuery() -> inlineShareService.answer(update.inlineQuery)
             }
         } catch (error: Exception) {
             // Без этого ошибка в потоке long polling теряется, и состояние flow молча не сохраняется

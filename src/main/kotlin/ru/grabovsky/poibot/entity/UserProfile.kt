@@ -35,4 +35,6 @@ data class UserSettings(
     var searchRadiusMeters: Int = 250,
     /** Удалять служебные сообщения: команды в личке и временные подтверждения бота. */
     var cleanChat: Boolean = true,
+    /** Показывать в `/nearby` места групп, где пользователь состоит (помечены 👥). */
+    var nearbyGroups: Boolean = true,
 )

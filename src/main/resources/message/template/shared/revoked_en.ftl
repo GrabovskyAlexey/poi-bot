@@ -1,0 +1,1 @@
+🚫 The link is revoked. A new one will be created the next time you press "Share".

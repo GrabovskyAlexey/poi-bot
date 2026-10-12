@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.MeterRegistry
 import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.message.Message
+import ru.grabovsky.poibot.maps.MapImport
 import ru.grabovsky.poibot.service.interfaces.*
 import ru.grabovsky.poibot.strategy.flow.core.engine.*
 import ru.grabovsky.poibot.strategy.flow.core.support.*
@@ -28,6 +29,7 @@ class AddPlaceFlow(
     private val i18n: I18nService,
     private val cardFactory: PlaceCardFactory,
     private val meterRegistry: MeterRegistry,
+    private val mapLinkImportService: MapLinkImportService,
 ) : FlowHandler<AddPlaceState> {
 
     override val key: FlowKey = FlowKeys.ADD_PLACE
@@ -447,6 +449,10 @@ class AddPlaceFlow(
         }
         val text = message.text?.trim()?.takeIf { it.isNotEmpty() } ?: return Outcome.Ignored
         if (UrlUtils.looksLikeUrl(text)) {
+            mapLinkImportService.import(text)?.let {
+                applyMapImport(state, it)
+                return Outcome.Applied
+            }
             UrlUtils.normalize(text)?.let {
                 state.websiteUrl = it
                 return Outcome.Applied
@@ -488,6 +494,14 @@ class AddPlaceFlow(
         state.lat = venue.location.latitude
         state.lon = venue.location.longitude
         return true
+    }
+
+    /** Из ссылки на карты берём название и адрес в пустые поля, геопозицию обновляем всегда. */
+    private fun applyMapImport(state: AddPlaceState, import: MapImport) {
+        if (state.name.isNullOrBlank()) state.name = import.name?.take(PlaceField.NAME.maxLength)
+        if (state.address.isNullOrBlank()) state.address = import.address?.take(PlaceField.ADDRESS.maxLength)
+        state.lat = import.lat
+        state.lon = import.lon
     }
 
     private fun applyPhoto(state: AddPlaceState, message: Message): Boolean {
