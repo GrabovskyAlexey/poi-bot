@@ -8,6 +8,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import ru.grabovsky.poibot.entity.Chat
 import ru.grabovsky.poibot.entity.SavedPlace
+import ru.grabovsky.poibot.geo.NearbyFilter
 import ru.grabovsky.poibot.geo.SearchRadius
 import ru.grabovsky.poibot.repository.SavedPlaceRepository
 import ru.grabovsky.poibot.repository.UserChatRepository
@@ -48,6 +49,22 @@ class NearbySearchServiceImplTest : ShouldSpec({
         every { userChats.findActiveChatsByUserId(7L) } returns emptyList()
         service.searchOwn(7L, 55.7500, 37.62, SearchRadius.M1000, includeGroups = true).points.map { it.place.name } shouldBe
                 listOf("Моё")
+    }
+
+    should("keep only own places matching the filter and drop group places") {
+        val beenBar = own.copy(status = "BEEN", tags = listOf("бар"))
+        val wantBar = place(5, 7, 105, "Хочу", 55.7508).copy(status = "WANT", tags = listOf("бар"))
+        every { places.findOwnInBox(7L, any(), any(), any(), any()) } returns listOf(beenBar, wantBar)
+
+        val byStatus = service.searchOwn(7L, 55.7500, 37.62, SearchRadius.M1000, includeGroups = true, filter = NearbyFilter(status = "BEEN"))
+        byStatus.points.map { it.place.name } shouldBe listOf("Моё")
+
+        val byTag = service.searchOwn(7L, 55.7500, 37.62, SearchRadius.M1000, includeGroups = true, filter = NearbyFilter(tag = "бар"))
+        byTag.points.map { it.place.name } shouldBe listOf("Хочу", "Моё")
+
+        val both = service.searchOwn(7L, 55.7500, 37.62, SearchRadius.M1000, filter = NearbyFilter("WANT", "кофе"))
+        both.points shouldBe emptyList()
+        verify(exactly = 0) { userChats.findActiveChatsByUserId(any()) }
     }
 
     should("find a place only among the user's groups") {
