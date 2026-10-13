@@ -40,6 +40,7 @@ import ru.grabovsky.poibot.service.interfaces.RelinkResult
 import ru.grabovsky.poibot.service.interfaces.ReportResult
 import ru.grabovsky.poibot.service.PlaceLinkServiceImpl
 import ru.grabovsky.poibot.service.ReviewServiceImpl
+import ru.grabovsky.poibot.service.ModerationServiceImpl
 import io.kotest.matchers.types.shouldBeInstanceOf
 import ru.grabovsky.poibot.service.PublishServiceImpl
 import ru.grabovsky.poibot.service.interfaces.ChatMembershipChecker
@@ -457,6 +458,47 @@ class PlaceRepositoriesIT {
 
         service.commentCount(record.placeId) shouldBe 0
         service.comments(record.placeId, 1L, 0, 5).items shouldHaveSize 0
+    }
+
+    @Test
+    fun shouldRestoreAndDeleteHiddenComments() {
+        (1L..5L).forEach { owner(it) }
+        val record = saved().create(1L, SavedPlaceDraft(name = "Хмель"))
+        em.flush()
+        em.clear()
+        val service = reviews()
+        service.saveComment(1L, record.id!!, "Реклама казино")
+        em.flush()
+        em.clear()
+        val commentId = service.comments(record.placeId, 1L, 0, 5).items.single().id
+        listOf(2L, 3L, 4L).forEach { service.report(it, commentId) }
+        em.flush()
+        em.clear()
+        val moderation = ModerationServiceImpl(placeCommentRepository, placeCommentReportRepository, placeRepository)
+
+        moderation.hiddenCount() shouldBe 1
+        val hidden = moderation.hiddenAt(0)!!
+        hidden.id shouldBe commentId
+        hidden.placeName shouldBe "Хмель"
+        hidden.reports shouldBe 3
+        moderation.hiddenAt(1) shouldBe null
+
+        moderation.restore(commentId) shouldBe true
+        em.flush()
+        em.clear()
+        moderation.hiddenCount() shouldBe 0
+        service.commentCount(record.placeId) shouldBe 1
+        placeCommentReportRepository.countByCommentId(commentId) shouldBe 0
+        moderation.restore(commentId) shouldBe false
+
+        listOf(2L, 3L, 4L).forEach { service.report(it, commentId) }
+        em.flush()
+        em.clear()
+        moderation.delete(commentId) shouldBe true
+        em.flush()
+        em.clear()
+        moderation.hiddenCount() shouldBe 0
+        service.commentCount(record.placeId) shouldBe 0
     }
 
     @Test
