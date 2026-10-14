@@ -35,21 +35,24 @@ class BotTest : ShouldSpec({
     val secondCommand = object : AbstractCommand(Command.START, FlowKeys.START, userService, flowEngine, chatService) {}
 
     should("set bot commands sorted by order and expose token") {
-        val commandSlot = slot<SetMyCommands>()
+        val sent = mutableListOf<SetMyCommands>()
         val config = BotConfig(token = "token", name = "botName")
         val commands = listOf(firstCommand, secondCommand)
 
-        every { telegramClient.execute(capture(commandSlot)) } returns true
+        every { telegramClient.execute(capture(sent)) } returns true
 
         val bot = Bot(config, telegramClient, receiverService, unknownCommandService, commands)
 
         bot.botToken shouldBe "token"
         bot.updatesConsumer shouldBe bot
 
-        val sentCommands = commandSlot.captured.commands
-        sentCommands.shouldContainExactly(
+        sent.first { it.languageCode == null }.commands.shouldContainExactly(
             BotCommand(secondCommand.commandIdentifier, secondCommand.description),
             BotCommand(firstCommand.commandIdentifier, firstCommand.description)
+        )
+        sent.first { it.languageCode == "en" }.commands.shouldContainExactly(
+            BotCommand(secondCommand.commandIdentifier, "🟢 Start using the bot"),
+            BotCommand(firstCommand.commandIdentifier, "❓ Help")
         )
     }
 
@@ -82,12 +85,12 @@ class BotTest : ShouldSpec({
     }
 
     should("not put hidden commands into the bot menu") {
-        val commandSlot = slot<SetMyCommands>()
-        every { telegramClient.execute(capture(commandSlot)) } returns true
+        val sent = mutableListOf<SetMyCommands>()
+        every { telegramClient.execute(capture(sent)) } returns true
         val hidden = object : AbstractCommand(Command.ADMIN, FlowKeys.ADMIN, userService, flowEngine, chatService) {}
 
         Bot(BotConfig(token = "t", name = "name"), telegramClient, receiverService, unknownCommandService, listOf(secondCommand, hidden))
 
-        commandSlot.captured.commands.map { it.command } shouldBe listOf("start")
+        sent.map { cmds -> cmds.commands.map { it.command } } shouldBe listOf(listOf("start"), listOf("start"))
     }
 })

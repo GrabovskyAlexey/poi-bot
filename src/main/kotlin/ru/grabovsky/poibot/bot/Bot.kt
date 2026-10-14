@@ -28,7 +28,11 @@ class Bot(
 
     init {
         registerAll(*commands.toTypedArray())
-        SetMyCommands(commands.filter { it.listed }.sortedBy { it.sortOrder }.map { BotCommand(it.commandIdentifier, it.description)})
+        val listed = commands.filter { it.listed }.sortedBy { it.sortOrder }
+        // Русское меню - по умолчанию, англоязычным пользователям Telegram показывает английское
+        SetMyCommands(listed.map { BotCommand(it.commandIdentifier, it.description) }).also { client.execute(it) }
+        SetMyCommands(listed.map { BotCommand(it.commandIdentifier, it.descriptionEn) })
+            .also { it.languageCode = "en" }
             .also { client.execute(it) }
     }
     override fun getBotToken() = config.token
