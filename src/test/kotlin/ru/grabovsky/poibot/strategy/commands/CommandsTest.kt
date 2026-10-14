@@ -97,6 +97,51 @@ class CommandsTest : ShouldSpec({
         verify(exactly = 0) { telegramClient.execute(match<org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage> { it.messageId == 6 }) }
     }
 
+    should("answer a non-admin to /admin as to an unknown command and start nothing") {
+        io.mockk.clearMocks(telegramClient)
+        val userService = mockk<UserService>(relaxed = true)
+        val engine = mockk<FlowEngine>(relaxed = true)
+        val unknown = mockk<ru.grabovsky.poibot.service.interfaces.UnknownCommandService>(relaxed = true)
+        val command = AdminCommand(userService, engine, mockk(relaxed = true), unknown)
+        val tgUser = mockk<TgUser>(relaxed = true) { every { id } returns 170L }
+        val message = mockk<Message>(relaxed = true) {
+            every { this@mockk.chat } returns chat
+            every { from } returns tgUser
+            every { messageId } returns 8
+        }
+        every { userService.getUser(170L) } returns
+                User(170L, "T", null, "t").apply { profile = UserProfile(userId = 170L, user = this) }
+
+        command.processMessage(telegramClient, message, emptyArray())
+
+        verify { unknown.reply(message) }
+        verify(exactly = 0) { engine.start(any(), any(), any(), any()) }
+        verify(exactly = 0) { telegramClient.execute(any<org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage>()) }
+    }
+
+    should("start the admin flow for an admin") {
+        val userService = mockk<UserService>(relaxed = true)
+        val engine = mockk<FlowEngine>(relaxed = true)
+        val unknown = mockk<ru.grabovsky.poibot.service.interfaces.UnknownCommandService>(relaxed = true)
+        val command = AdminCommand(userService, engine, mockk(relaxed = true), unknown)
+        val tgUser = mockk<TgUser>(relaxed = true) { every { id } returns 171L }
+        val message = mockk<Message>(relaxed = true) {
+            every { this@mockk.chat } returns chat
+            every { from } returns tgUser
+            every { messageId } returns 9
+            every { chatId } returns 171L
+        }
+        val admin = User(171L, "A", null, "a").apply { profile = UserProfile(userId = 171L, user = this, isAdmin = true) }
+        every { userService.getUser(171L) } returns admin
+        every { userService.createOrUpdateUser(tgUser) } returns admin
+        every { engine.start(FlowKeys.ADMIN, tgUser, any(), any()) } returns true
+
+        command.processMessage(telegramClient, message, emptyArray())
+
+        verify { engine.start(FlowKeys.ADMIN, tgUser, any(), any()) }
+        verify(exactly = 0) { unknown.reply(any()) }
+    }
+
     should("only register chat and link user when command is used in a group") {
         val userService = mockk<UserService>(relaxed = true)
         val engine = mockk<FlowEngine>()

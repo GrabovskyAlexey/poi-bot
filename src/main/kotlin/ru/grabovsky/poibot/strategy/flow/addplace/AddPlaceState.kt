@@ -48,6 +48,8 @@ data class AddPlaceState(
     var photoFileUniqueId: String? = null,
     var lat: Double? = null,
     var lon: Double? = null,
+    /** Id организации из ссылки на карты; сбрасывается, если геопозицию задали вручную. */
+    var orgRef: String? = null,
     /** Личные поля записи: статус ([ru.grabovsky.poibot.entity.PlaceStatus]), заметка и теги. */
     var status: String? = null,
     var note: String? = null,

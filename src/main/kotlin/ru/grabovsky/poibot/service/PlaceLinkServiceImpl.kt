@@ -74,9 +74,18 @@ class PlaceLinkServiceImpl(
         }
         commentRepository.deleteConflicting(oldPlaceId, newPlaceId)
         commentRepository.moveToPlace(oldPlaceId, newPlaceId)
-        placeRepository.findById(oldPlaceId).ifPresent {
-            it.mergedIntoId = newPlaceId
-            placeRepository.save(it)
+        placeRepository.findById(oldPlaceId).ifPresent { old ->
+            old.mergedIntoId = newPlaceId
+            placeRepository.save(old)
+            val orgRef = old.orgRef
+            if (orgRef != null) {
+                placeRepository.findById(newPlaceId).ifPresent {
+                    if (it.orgRef == null) {
+                        it.orgRef = orgRef
+                        placeRepository.save(it)
+                    }
+                }
+            }
         }
         logger.info { "Place $oldPlaceId merged into $newPlaceId" }
     }

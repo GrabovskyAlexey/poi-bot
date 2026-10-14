@@ -14,7 +14,9 @@ import org.telegram.telegrambots.meta.generics.TelegramClient
 import ru.grabovsky.poibot.config.BotConfig
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.ReceiverService
+import ru.grabovsky.poibot.service.interfaces.UnknownCommandService
 import ru.grabovsky.poibot.service.interfaces.UserService
+import org.telegram.telegrambots.meta.api.objects.message.Message
 import ru.grabovsky.poibot.strategy.commands.AbstractCommand
 import ru.grabovsky.poibot.strategy.commands.Command
 import ru.grabovsky.poibot.strategy.flow.core.engine.FlowEngine
@@ -27,26 +29,30 @@ class BotTest : ShouldSpec({
     val userService = mockk<UserService>(relaxed = true)
     val flowEngine = mockk<FlowEngine>(relaxed = true)
     val chatService = mockk<ChatService>(relaxed = true)
+    val unknownCommandService = mockk<UnknownCommandService>(relaxed = true)
 
     val firstCommand = object : AbstractCommand(Command.HELP, FlowKeys.HELP, userService, flowEngine, chatService) {}
     val secondCommand = object : AbstractCommand(Command.START, FlowKeys.START, userService, flowEngine, chatService) {}
 
     should("set bot commands sorted by order and expose token") {
-        val commandSlot = slot<SetMyCommands>()
+        val sent = mutableListOf<SetMyCommands>()
         val config = BotConfig(token = "token", name = "botName")
         val commands = listOf(firstCommand, secondCommand)
 
-        every { telegramClient.execute(capture(commandSlot)) } returns true
+        every { telegramClient.execute(capture(sent)) } returns true
 
-        val bot = Bot(config, telegramClient, receiverService, commands)
+        val bot = Bot(config, telegramClient, receiverService, unknownCommandService, commands)
 
         bot.botToken shouldBe "token"
         bot.updatesConsumer shouldBe bot
 
-        val sentCommands = commandSlot.captured.commands
-        sentCommands.shouldContainExactly(
+        sent.first { it.languageCode == null }.commands.shouldContainExactly(
             BotCommand(secondCommand.commandIdentifier, secondCommand.description),
             BotCommand(firstCommand.commandIdentifier, firstCommand.description)
+        )
+        sent.first { it.languageCode == "en" }.commands.shouldContainExactly(
+            BotCommand(secondCommand.commandIdentifier, "🟢 Start using the bot"),
+            BotCommand(firstCommand.commandIdentifier, "❓ Help")
         )
     }
 
@@ -57,9 +63,34 @@ class BotTest : ShouldSpec({
 
         every { telegramClient.execute(any<SetMyCommands>()) } returns true
 
-        val bot = Bot(config, telegramClient, receiverService, commands)
+        val bot = Bot(config, telegramClient, receiverService, unknownCommandService, commands)
         bot.processNonCommandUpdate(update)
 
         verify { receiverService.execute(update) }
+    }
+
+    should("answer unknown commands itself instead of passing them to flows") {
+        io.mockk.clearMocks(receiverService, unknownCommandService)
+        every { telegramClient.execute(any<SetMyCommands>()) } returns true
+        val message = mockk<Message>()
+        val update = mockk<Update> {
+            every { this@mockk.message } returns message
+        }
+
+        Bot(BotConfig(token = "t", name = "name"), telegramClient, receiverService, unknownCommandService, listOf(secondCommand))
+            .processInvalidCommandUpdate(update)
+
+        verify { unknownCommandService.reply(message) }
+        verify(exactly = 0) { receiverService.execute(any()) }
+    }
+
+    should("not put hidden commands into the bot menu") {
+        val sent = mutableListOf<SetMyCommands>()
+        every { telegramClient.execute(capture(sent)) } returns true
+        val hidden = object : AbstractCommand(Command.ADMIN, FlowKeys.ADMIN, userService, flowEngine, chatService) {}
+
+        Bot(BotConfig(token = "t", name = "name"), telegramClient, receiverService, unknownCommandService, listOf(secondCommand, hidden))
+
+        sent.map { cmds -> cmds.commands.map { it.command } } shouldBe listOf(listOf("start"), listOf("start"))
     }
 })

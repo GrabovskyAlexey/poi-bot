@@ -7,15 +7,17 @@ import io.mockk.*
 import ru.grabovsky.poibot.entity.User
 import ru.grabovsky.poibot.entity.UserProfile
 import ru.grabovsky.poibot.repository.UserRepository
+import ru.grabovsky.poibot.service.interfaces.StatsService
 import java.time.Instant
 import org.telegram.telegrambots.meta.api.objects.User as TgUser
 
 class UserServiceImplTest : ShouldSpec({
     val userRepository = mockk<UserRepository>()
-    val service = UserServiceImpl(userRepository)
+    val statsService = mockk<StatsService>(relaxed = true)
+    val service = UserServiceImpl(userRepository, statsService)
 
     beforeTest {
-        clearMocks(userRepository)
+        clearMocks(userRepository, statsService)
     }
 
     should("create new user with language and last action time") {
@@ -38,6 +40,7 @@ class UserServiceImplTest : ShouldSpec({
         saved.lastActionAt!!.isAfter(Instant.now().minusSeconds(5)) shouldBe true
         saved.profile!!.isBlocked shouldBe false
         result shouldBe saved
+        verify { statsService.recordActivity(77L, null, any()) }
         verify(exactly = 1) { userRepository.saveAndFlush(any()) }
     }
 
@@ -74,6 +77,7 @@ class UserServiceImplTest : ShouldSpec({
         existingUser.lastActionAt.shouldNotBeNull()
         result shouldBe existingUser
         verify(exactly = 1) { userRepository.saveAndFlush(existingUser) }
+        verify { statsService.recordActivity(88L, null, any()) }
     }
 
 })

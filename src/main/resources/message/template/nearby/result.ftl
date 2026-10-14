@@ -1,4 +1,5 @@
-<#if data.nothingAnywhere>Рядом (до 1 км) ничего не найдено.<#else><#if data.points?size == 0>В радиусе <b>${data.radiusText}</b> ничего нет.<#else><b>В радиусе ${data.radiusText}:</b>
+<#if data.filterText??>🔎 Фильтр: <b>${data.filterText?html}</b>
+</#if><#if data.nothingAnywhere>Рядом (до 1 км) ничего не найдено.<#else><#if data.points?size == 0>В радиусе <b>${data.radiusText}</b> ничего нет.<#else><b>В радиусе ${data.radiusText}:</b>
 <#list data.points as p>
 ${p.index}. <#if p.group>👥 </#if><b>${p.name?html}</b> — ${p.distanceText}
 </#list>

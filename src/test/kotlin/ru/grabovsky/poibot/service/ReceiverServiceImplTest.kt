@@ -68,6 +68,32 @@ class ReceiverServiceImplTest : ShouldSpec({
         verify { flowEngine.start(FlowKeys.NEARBY, telegramUser, any(), "LOC:55.5:37.5") }
     }
 
+    should("запускать добавление места для ссылки на карты без активного флоу") {
+        val telegramUser = mockk<TgUser>(relaxed = true) { every { id } returns 103L }
+        val telegramMessage = mockk<Message>(relaxed = true) {
+            every { chat } returns privateChat
+            every { chatShared } returns null
+            every { from } returns telegramUser
+            every { messageId } returns 77
+            every { location } returns null
+            every { venue } returns null
+            every { text } returns "Вот тут https://maps.app.goo.gl/abc круто"
+        }
+        val update = mockk<Update> {
+            every { hasCallbackQuery() } returns false
+            every { hasMessage() } returns true
+            every { message } returns telegramMessage
+        }
+        every { userService.createOrUpdateUser(telegramUser) } returns BotUser(103L, null, null, null)
+        every { userService.getUser(103L) } returns null
+        every { flowStateService.findListFlow(103L) } returns null
+        every { flowEngine.start(any(), any(), any(), any()) } returns true
+
+        service.execute(update)
+
+        verify { flowEngine.start(FlowKeys.ADD_PLACE, telegramUser, any(), "LINK:77:https://maps.app.goo.gl/abc") }
+    }
+
     should("передавать сообщения активному флоу") {
         val telegramUser = mockk<TgUser>(relaxed = true) {
             every { id } returns 101L

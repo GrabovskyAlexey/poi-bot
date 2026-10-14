@@ -1,4 +1,5 @@
-<#if data.nothingAnywhere>Nothing found nearby (within 1 km).<#else><#if data.points?size == 0>Nothing within <b>${data.radiusText}</b>.<#else><b>Within ${data.radiusText}:</b>
+<#if data.filterText??>🔎 Filter: <b>${data.filterText?html}</b>
+</#if><#if data.nothingAnywhere>Nothing found nearby (within 1 km).<#else><#if data.points?size == 0>Nothing within <b>${data.radiusText}</b>.<#else><b>Within ${data.radiusText}:</b>
 <#list data.points as p>
 ${p.index}. <#if p.group>👥 </#if><b>${p.name?html}</b> — ${p.distanceText}
 </#list>
