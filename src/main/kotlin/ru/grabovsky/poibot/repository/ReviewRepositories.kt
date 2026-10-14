@@ -43,6 +43,10 @@ interface PlaceCommentRepository : JpaRepository<PlaceComment, Long> {
 
     fun countByPlaceIdAndHiddenFalse(placeId: Long): Long
 
+    fun countByHiddenTrue(): Long
+
+    fun findByHiddenTrueOrderByIdAsc(pageable: Pageable): Page<PlaceComment>
+
     fun findByPlaceIdAndAuthorId(placeId: Long, authorId: Long): PlaceComment?
 
     /** При слиянии мест у автора остаётся комментарий целевого места (один комментарий на пользователя и место). */
@@ -63,4 +67,8 @@ interface PlaceCommentReportRepository : JpaRepository<PlaceCommentReport, Place
 
     @Query("select count(r) from PlaceCommentReport r where r.id.commentId = :commentId")
     fun countByCommentId(@Param("commentId") commentId: Long): Long
+
+    @Modifying
+    @Query("delete from PlaceCommentReport r where r.id.commentId = :commentId")
+    fun deleteByCommentId(@Param("commentId") commentId: Long): Int
 }

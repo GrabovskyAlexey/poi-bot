@@ -20,7 +20,12 @@ abstract class AbstractCommand(
     private val flowEngine: FlowEngine,
     private val chatService: ChatService,
     val sortOrder: Int = command.order,
+    /** Показывать ли команду в меню бота (`SetMyCommands`). */
+    val listed: Boolean = !command.hidden,
 ) : BotCommand(command.command, command.text), BotCommands {
+
+    /** Описание команды в меню для английского языка (основное - [getDescription] - русское). */
+    val descriptionEn: String = command.textEn
 
     override fun prepare(user: User, chat: Chat, arguments: Array<out String>) {
         userService.createOrUpdateUser(user)

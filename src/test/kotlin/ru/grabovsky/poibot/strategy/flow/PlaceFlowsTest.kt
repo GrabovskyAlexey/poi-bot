@@ -311,7 +311,7 @@ class PlaceFlowsTest : ShouldSpec({
             sends.first().message.removeReplyKeyboard shouldBe true
             val send = sends.last()
             send.message.inlineButtons.map { it.payload.data } shouldBe
-                    listOf("OPEN:80", "R:500", "R:1000", "RADIUS")
+                    listOf("OPEN:80", "R:500", "R:1000", "RADIUS", "FILTER")
             result.actions.shouldContain(DeleteMessageIdAction(77))
         }
 
@@ -357,6 +357,59 @@ class PlaceFlowsTest : ShouldSpec({
             val answer = result.shouldNotBeNull().actions.filterIsInstance<AnswerCallbackAction>().single()
             answer.text shouldBe "alerts.shared.already_saved"
             answer.showAlert shouldBe true
+        }
+
+        should("open the filter screen with statuses and the user's tags") {
+            every { savedPlaces.popularTags(7L) } returns listOf("бар", "кофе")
+            val state = NearbyState(55.0, 37.0, 250)
+
+            val result = flow.onCallback(ctx(state), callback(), "FILTER")
+
+            val message = result.shouldNotBeNull().actions.filterIsInstance<EditMessageAction>().single().message
+            message.inlineButtons.map { it.payload.data } shouldBe listOf("FS:WANT", "FS:BEEN", "FT:0", "FT:1", "BACK")
+            state.tagChoices shouldBe listOf("бар", "кофе")
+        }
+
+        should("toggle status and tag in the filter and offer a reset") {
+            val state = NearbyState(55.0, 37.0, 250, tagChoices = mutableListOf("бар", "кофе"))
+
+            flow.onCallback(ctx(state), callback(), "FS:BEEN")
+            state.status shouldBe "BEEN"
+            val message = flow.onCallback(ctx(state), callback(), "FT:1")!!.actions.filterIsInstance<EditMessageAction>().single().message
+            state.tag shouldBe "кофе"
+            message.inlineButtons.map { it.payload.data } shouldBe listOf("FS:WANT", "FS:BEEN", "FT:0", "FT:1", "FR", "BACK")
+            message.inlineButtons.map { it.text } shouldContain "buttons.status.been_on"
+            message.inlineButtons.map { it.text } shouldContain "✅ #кофе"
+
+            flow.onCallback(ctx(state), callback(), "FS:BEEN")
+            flow.onCallback(ctx(state), callback(), "FT:1")
+            state.status shouldBe null
+            state.tag shouldBe null
+
+            flow.onCallback(ctx(state), callback(), "FT:9") shouldBe null
+        }
+
+        should("reset the filter") {
+            val state = NearbyState(55.0, 37.0, 250, status = "WANT", tag = "бар", tagChoices = mutableListOf("бар"))
+
+            flow.onCallback(ctx(state), callback(), "FR").shouldNotBeNull()
+
+            state.filter().active shouldBe false
+        }
+
+        should("search with the filter and show it in the result") {
+            every { userService.getUser(7L) } returns entityUser
+            val filter = ru.grabovsky.poibot.geo.NearbyFilter("BEEN", "кофе")
+            every { search.searchOwn(7L, 55.0, 37.0, SearchRadius.M250, true, filter) } returns
+                    NearbyResult.build(listOf(NearbyPoint(place(5, "Кофейня"), 100)), SearchRadius.M250)
+            val state = NearbyState(55.0, 37.0, 250, status = "BEEN", tag = "кофе")
+
+            val result = flow.onCallback(ctx(state), callback(), "BACK")
+
+            val message = result.shouldNotBeNull().actions.filterIsInstance<EditMessageAction>().single().message
+            message.model.shouldBeInstanceOf<ru.grabovsky.poibot.strategy.flow.nearby.NearbyView>().filterText shouldBe "status.been · #кофе"
+            message.inlineButtons.last().text shouldBe "buttons.nearby.filter_on"
+            message.inlineButtons.last().payload.data shouldBe "FILTER"
         }
 
         should("show results at once when started with coordinates") {

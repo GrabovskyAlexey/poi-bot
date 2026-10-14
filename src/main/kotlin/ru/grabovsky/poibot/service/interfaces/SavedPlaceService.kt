@@ -16,6 +16,8 @@ data class SavedPlaceDraft(
     val status: String? = null,
     val note: String? = null,
     val tags: List<String> = emptyList(),
+    /** Id организации в сервисе карт; запоминается на месте и склеивает дубли. */
+    val orgRef: String? = null,
 )
 
 data class SavedPlacePage(val items: List<SavedPlace>, val page: Int, val totalPages: Int, val totalItems: Long)

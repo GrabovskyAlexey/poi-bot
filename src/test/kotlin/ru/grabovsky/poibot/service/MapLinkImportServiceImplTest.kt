@@ -34,21 +34,21 @@ class MapLinkImportServiceImplTest : ShouldSpec({
                 """<title>Панини Пицца, пиццерия — Яндекс Карты</title>{"shortTitle":"Панини Пицца","fullAddress":"Москва, Шокальского, 45"}"""
 
         service.import("Вот: https://yandex.ru/maps/-/CXu5vDnv") shouldBe
-                MapImport("Панини Пицца", "Москва, Шокальского, 45", 55.883147, 37.653818)
+                MapImport("Панини Пицца", "Москва, Шокальского, 45", 55.883147, 37.653818, "yandex:1")
         verify(exactly = 0) { http.reverseAddress(any(), any()) }
     }
 
     should("keep Yandex coordinates when the page is unavailable") {
         every { http.page(yandexLong) } returns null
 
-        service.import(yandexLong) shouldBe MapImport(null, null, 55.883147, 37.653818)
+        service.import(yandexLong) shouldBe MapImport(null, null, 55.883147, 37.653818, "yandex:1")
     }
 
     should("give only coordinates (and geocoded address) for 2GIS") {
         every { http.redirectTarget("https://go.2gis.com/GVviQ") } returns
                 "https://2gis.ru/moscow/firm/7/tab/info?m=37.654784,55.883007/19"
 
-        service.import("https://go.2gis.com/GVviQ") shouldBe MapImport(null, null, 55.883007, 37.654784)
+        service.import("https://go.2gis.com/GVviQ") shouldBe MapImport(null, null, 55.883007, 37.654784, "2gis:7")
     }
 
     should("ignore foreign links and never leave map hosts through redirects") {

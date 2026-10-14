@@ -12,4 +12,5 @@ object FlowKeys {
     val RELINK = FlowKey("RELINK")
     val DELETE_ME = FlowKey("DELETE_ME")
     val SETTINGS = FlowKey("SETTINGS")
+    val ADMIN = FlowKey("ADMIN")
 }

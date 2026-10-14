@@ -9,6 +9,7 @@ import org.telegram.telegrambots.meta.api.objects.Update
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.message.Message
 import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMemberUpdated
+import ru.grabovsky.poibot.maps.MapLinkParser
 import ru.grabovsky.poibot.service.interfaces.ChatService
 import ru.grabovsky.poibot.service.interfaces.FlowStateService
 import ru.grabovsky.poibot.service.interfaces.GroupPlacesService
@@ -76,10 +77,18 @@ class ReceiverServiceImpl(
         }
     }
 
-    /** Геопозиция без подходящего диалога - считаем просьбой показать места рядом. */
+    /**
+     * Сообщение без подходящего диалога: геопозиция - просьба показать места рядом, ссылка на карты - предложение
+     * добавить это место.
+     */
     private fun searchNearby(user: User, message: Message) {
-        val location = message.location ?: message.venue?.location ?: return
-        flowEngine.start(FlowKeys.NEARBY, user, resolveLocale(user), "LOC:${location.latitude}:${location.longitude}")
+        val location = message.location ?: message.venue?.location
+        if (location != null) {
+            flowEngine.start(FlowKeys.NEARBY, user, resolveLocale(user), "LOC:${location.latitude}:${location.longitude}")
+            return
+        }
+        val link = message.text?.let(MapLinkParser::findUrl)?.takeIf { MapLinkParser.provider(it) != null } ?: return
+        flowEngine.start(FlowKeys.ADD_PLACE, user, resolveLocale(user), "LINK:${message.messageId}:$link")
     }
 
     private fun processCallback(callbackQuery: CallbackQuery) {

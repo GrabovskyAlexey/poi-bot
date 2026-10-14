@@ -36,7 +36,7 @@ class MapLinkParserTest : ShouldSpec({
 
     context("google") {
         should("take the name and the place pin rather than the map center") {
-            MapLinkParser.parseGoogle(google) shouldBe MapImport("Crosby Coffee", null, 55.8834986, 37.6537285)
+            MapLinkParser.parseGoogle(google) shouldBe MapImport("Crosby Coffee", null, 55.8834986, 37.6537285, "google:0x1:0x2")
         }
 
         should("fall back to the map center and skip coordinates as a name") {
@@ -52,7 +52,7 @@ class MapLinkParserTest : ShouldSpec({
 
     context("yandex") {
         should("take organization point in longitude,latitude order") {
-            MapLinkParser.parseYandex(yandex) shouldBe MapImport(null, null, 55.883147, 37.653818)
+            MapLinkParser.parseYandex(yandex) shouldBe MapImport(null, null, 55.883147, 37.653818, "yandex:211075302874")
         }
 
         should("use pt for a plain point and null when there is none") {
@@ -79,7 +79,7 @@ class MapLinkParserTest : ShouldSpec({
 
     context("2gis") {
         should("take the map center from the link") {
-            MapLinkParser.parseTwoGis(twoGis) shouldBe MapImport(null, null, 55.883007, 37.654784)
+            MapLinkParser.parseTwoGis(twoGis) shouldBe MapImport(null, null, 55.883007, 37.654784, "2gis:70000001066524600")
         }
 
         should("take a geo point and return null without coordinates") {

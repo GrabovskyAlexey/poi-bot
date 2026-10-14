@@ -6,6 +6,7 @@ import ru.grabovsky.poibot.entity.User
 import ru.grabovsky.poibot.entity.UserProfile
 import ru.grabovsky.poibot.mapper.UserMapper
 import ru.grabovsky.poibot.repository.UserRepository
+import ru.grabovsky.poibot.service.interfaces.StatsService
 import ru.grabovsky.poibot.service.interfaces.UserService
 import java.time.Instant
 import org.telegram.telegrambots.meta.api.objects.User as TgUser
@@ -13,6 +14,7 @@ import org.telegram.telegrambots.meta.api.objects.User as TgUser
 @Service
 class UserServiceImpl(
     private val userRepository: UserRepository,
+    private val statsService: StatsService,
 ) : UserService {
 
     override fun createOrUpdateUser(user: TgUser): User {
@@ -28,8 +30,9 @@ class UserServiceImpl(
         entity.lastName = user.lastName
         entity.userName = user.userName
         entity.language = user.languageCode
+        val previousActionAt = entity.lastActionAt
         entity.lastActionAt = Instant.now()
-        return userRepository.saveAndFlush(entity)
+        return userRepository.saveAndFlush(entity).also { statsService.recordActivity(it.userId, previousActionAt) }
     }
 
     private fun createNewUser(userFromTelegram: User): User {
@@ -40,7 +43,7 @@ class UserServiceImpl(
             lastActionAt = Instant.now()
             profile = UserProfile(user = this)
         }
-        return userRepository.saveAndFlush(userFromTelegram)
+        return userRepository.saveAndFlush(userFromTelegram).also { statsService.recordActivity(it.userId, null) }
     }
 
     override fun saveUser(user: User) {

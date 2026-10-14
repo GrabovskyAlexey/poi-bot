@@ -113,4 +113,16 @@ class PlaceMatchingServiceImplTest : ShouldSpec({
         result[0].similarity shouldBe 1.0
         result[1].placeId shouldBe 2L
     }
+
+    should("put the place with the same organization id first even when it is far away") {
+        val far = Place(id = 9L, displayName = "Совсем другое имя", lat = 55.80, lon = 37.62, orgRef = "yandex:1")
+        val near = Place(id = 1L, displayName = "Хмель", lat = 55.7503, lon = 37.62)
+        every { placeRepo.findFirstByOrgRefAndMergedIntoIdIsNullOrderByIdAsc("yandex:1") } returns far
+        every { placeRepo.findInBox(any(), any(), any(), any()) } returns listOf(near, far)
+
+        val result = service.findCandidates(55.75, 37.62, "Хмель", "yandex:1")
+
+        result.map { it.placeId } shouldBe listOf(9L, 1L)
+        result[0].similarity shouldBe 1.0
+    }
 })

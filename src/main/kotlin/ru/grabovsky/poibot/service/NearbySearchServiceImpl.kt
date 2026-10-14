@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional
 import ru.grabovsky.poibot.entity.SavedPlace
 import ru.grabovsky.poibot.geo.BoundingBox
 import ru.grabovsky.poibot.geo.GeoUtils
+import ru.grabovsky.poibot.geo.NearbyFilter
 import ru.grabovsky.poibot.geo.NearbyPoint
 import ru.grabovsky.poibot.geo.NearbyResult
 import ru.grabovsky.poibot.geo.SearchRadius
@@ -25,11 +26,13 @@ class NearbySearchServiceImpl(
         lon: Double,
         selected: SearchRadius,
         includeGroups: Boolean,
+        filter: NearbyFilter,
     ): NearbyResult {
-        val chatIds = if (includeGroups) userChatIds(ownerId) else emptyList()
+        val chatIds = if (includeGroups && !filter.active) userChatIds(ownerId) else emptyList()
         val ownPlaceIds = mutableSetOf<Long>()
         val own = points(lat, lon, false) { box ->
             savedPlaceRepository.findOwnInBox(ownerId, box.minLat, box.maxLat, box.minLon, box.maxLon)
+                .filter(filter::matches)
         }.onEach { ownPlaceIds += it.place.placeId }
         val groups = if (chatIds.isEmpty()) {
             emptyList()

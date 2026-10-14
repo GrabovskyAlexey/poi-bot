@@ -3,6 +3,8 @@ package ru.grabovsky.poibot.strategy.flow.nearby
 import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.message.Message
+import ru.grabovsky.poibot.entity.PlaceStatus
+import ru.grabovsky.poibot.geo.NearbyFilter
 import ru.grabovsky.poibot.geo.NearbyResult
 import ru.grabovsky.poibot.geo.SearchRadius
 import ru.grabovsky.poibot.service.interfaces.AcceptResult
@@ -21,6 +23,7 @@ enum class NearbyStep(override val key: String) : FlowStep {
     WAIT("wait"),
     RESULT("result"),
     RADIUS("radius"),
+    FILTER("filter"),
     SEARCHING("searching"),
 }
 
@@ -28,7 +31,14 @@ data class NearbyState(
     var lat: Double? = null,
     var lon: Double? = null,
     var radiusMeters: Int = SearchRadius.DEFAULT.meters,
-)
+    /** Фильтр по личным полям: статус ([PlaceStatus]) и тег. Живёт, пока открыт этот диалог. */
+    var status: String? = null,
+    var tag: String? = null,
+    /** Теги-подсказки экрана фильтра (кнопки несут индекс: лимит callback-данных). */
+    var tagChoices: MutableList<String> = mutableListOf(),
+) {
+    fun filter() = NearbyFilter(status, tag)
+}
 
 data class PointView(val index: Int, val name: String, val distanceText: String, val group: Boolean = false)
 
@@ -43,10 +53,15 @@ data class NearbyView(
     val hiddenCount: Int,
     /** Среди показанных есть места из групп (в шаблоне поясняется значок 👥). */
     val hasGroup: Boolean = false,
+    /** Описание включённого фильтра (статус и тег) или null. */
+    val filterText: String? = null,
 )
 
 /** Модель шаблона `nearby/radius`. */
 data class RadiusView(val currentText: String)
+
+/** Модель шаблона `nearby/filter`. */
+data class FilterView(val hasTags: Boolean, val filterText: String?)
 
 /**
  * Поиск своих точек рядом. Ищем всегда по максимальному радиусу, показываем выбранный радиус
@@ -132,6 +147,29 @@ class NearbyFlow(
 
             "BACK" -> listOf(EditMessageAction(RESULT_BINDING, resultMessage(userId, state, locale)), answer)
 
+            "FILTER" -> {
+                state.tagChoices = savedPlaceService.popularTags(userId).take(MAX_TAG_CHOICES).toMutableList()
+                listOf(EditMessageAction(RESULT_BINDING, filterMessage(state, locale)), answer)
+            }
+
+            "FS" -> {
+                val target = PlaceStatus.fromCode(argument) ?: return null
+                state.status = PlaceStatus.toggle(PlaceStatus.fromCode(state.status), target)?.name
+                listOf(EditMessageAction(RESULT_BINDING, filterMessage(state, locale)), answer)
+            }
+
+            "FT" -> {
+                val tag = argument?.toIntOrNull()?.let { state.tagChoices.getOrNull(it) } ?: return null
+                state.tag = tag.takeIf { it != state.tag }
+                listOf(EditMessageAction(RESULT_BINDING, filterMessage(state, locale)), answer)
+            }
+
+            "FR" -> {
+                state.status = null
+                state.tag = null
+                listOf(EditMessageAction(RESULT_BINDING, filterMessage(state, locale)), answer)
+            }
+
             "OPEN" -> {
                 val own = id?.let { savedPlaceService.get(userId, it) }
                 val distance = distanceFromUser(state, own?.lat, own?.lon)
@@ -176,7 +214,7 @@ class NearbyFlow(
 
     private fun resultMessage(userId: Long, state: NearbyState, locale: Locale): FlowMessage {
         val selected = SearchRadius.fromMeters(state.radiusMeters)
-        val result = nearbySearchService.searchOwn(userId, state.lat!!, state.lon!!, selected, includeGroups(userId))
+        val result = nearbySearchService.searchOwn(userId, state.lat!!, state.lon!!, selected, includeGroups(userId), state.filter())
         val shown = result.points.take(MAX_SHOWN)
         val view = NearbyView(
             radiusText = formatter.distance(selected.meters, locale),
@@ -187,11 +225,12 @@ class NearbyFlow(
             nothingAnywhere = result.points.isEmpty() && result.hints.isEmpty(),
             hiddenCount = result.points.size - shown.size,
             hasGroup = shown.any { it.fromGroup },
+            filterText = filterText(state, locale),
         )
         return key.buildMessage(
             step = NearbyStep.RESULT,
             model = view,
-            inlineButtons = buttons(result, shown, locale),
+            inlineButtons = buttons(result, shown, state, locale),
             parseMode = FlowParseMode.HTML,
         )
     }
@@ -199,6 +238,7 @@ class NearbyFlow(
     private fun buttons(
         result: NearbyResult,
         shown: List<ru.grabovsky.poibot.geo.NearbyPoint>,
+        state: NearbyState,
         locale: Locale,
     ): List<FlowInlineButton> {
         val buttons = mutableListOf<FlowInlineButton>()
@@ -212,8 +252,46 @@ class NearbyFlow(
             val label = i18n.i18n("buttons.nearby.hint", locale, null, formatter.distance(hint.radius.meters, locale), hint.extra, hint.total)
             buttons += FlowInlineButton(label, FlowCallbackPayload(key.value, "R:${hint.radius.meters}"), row++)
         }
-        buttons += FlowInlineButton(i18n.i18n("buttons.nearby.change_radius", locale), FlowCallbackPayload(key.value, "RADIUS"), row)
+        buttons += FlowInlineButton(i18n.i18n("buttons.nearby.change_radius", locale), FlowCallbackPayload(key.value, "RADIUS"), row, 0)
+        val filterLabel = filterText(state, locale)
+            ?.let { i18n.i18n("buttons.nearby.filter_on", locale, null, it) }
+            ?: i18n.i18n("buttons.nearby.filter", locale)
+        buttons += FlowInlineButton(filterLabel, FlowCallbackPayload(key.value, "FILTER"), row, 1)
         return buttons
+    }
+
+    /** Статус и тег фильтра одной строкой («Был · #бар») или null, если фильтр выключен. */
+    private fun filterText(state: NearbyState, locale: Locale): String? {
+        val parts = listOfNotNull(
+            PlaceStatus.fromCode(state.status)?.let { i18n.i18n("status.${it.name.lowercase()}", locale) },
+            state.tag?.let { "#$it" },
+        )
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    private fun filterMessage(state: NearbyState, locale: Locale): FlowMessage {
+        val buttons = mutableListOf<FlowInlineButton>()
+        PlaceStatus.entries.forEachIndexed { index, status ->
+            val text = i18n.i18n(PlaceStatus.buttonKey(status, status.name == state.status), locale)
+            buttons += FlowInlineButton(text, FlowCallbackPayload(key.value, "FS:${status.name}"), 0, index)
+        }
+        state.tagChoices.forEachIndexed { index, tag ->
+            buttons += FlowInlineButton(
+                if (tag == state.tag) "✅ #$tag" else "#$tag",
+                FlowCallbackPayload(key.value, "FT:$index"), 1 + index / 2, index % 2,
+            )
+        }
+        var row = 1 + (state.tagChoices.size + 1) / 2
+        if (state.filter().active) {
+            buttons += FlowInlineButton(i18n.i18n("buttons.nearby.filter_reset", locale), FlowCallbackPayload(key.value, "FR"), row++, 0)
+        }
+        buttons += FlowInlineButton(i18n.i18n("buttons.common.back", locale), FlowCallbackPayload(key.value, "BACK"), row, 0)
+        return key.buildMessage(
+            step = NearbyStep.FILTER,
+            model = FilterView(state.tagChoices.isNotEmpty(), filterText(state, locale)),
+            inlineButtons = buttons,
+            parseMode = FlowParseMode.HTML,
+        )
     }
 
     /** Короткое сообщение, которое убирает reply-клавиатуру «Отправить геопозицию» и тут же исчезает. */
@@ -278,5 +356,6 @@ class NearbyFlow(
         const val CARD_BINDING = "card"
         const val MAX_SHOWN = 10
         const val BUTTON_NAME_LENGTH = 30
+        const val MAX_TAG_CHOICES = 12
     }
 }

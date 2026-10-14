@@ -19,6 +19,9 @@ object MapLinkParser {
     private val GOOGLE_VIEW = Regex("""@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)""")
     private val GOOGLE_QUERY = Regex("""[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:&|$)""")
     private val TWOGIS_CENTER = Regex("""[?&]m=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)""")
+    private val GOOGLE_FTID = Regex("""(?:!1s|ftid=)(0x[0-9a-f]+(?::|%3A)0x[0-9a-f]+)""", RegexOption.IGNORE_CASE)
+    private val YANDEX_OID = Regex("""oid=(\d+)""")
+    private val TWOGIS_FIRM = Regex("""/firm/(\d+)""")
     private val TWOGIS_GEO = Regex("""/geo/\d+/(-?\d+(?:\.\d+)?)(?:,|%2C)(-?\d+(?:\.\d+)?)""")
     private val YANDEX_SHORT_TITLE = Regex(""""shortTitle":"((?:[^"\\]|\\.)*)"""")
     private val YANDEX_FULL_ADDRESS = Regex(""""fullAddress":"((?:[^"\\]|\\.)*)"""")
@@ -62,7 +65,8 @@ object MapLinkParser {
         } ?: return null
         val name = GOOGLE_PLACE.find(url)?.groupValues?.get(1)?.let { decode(it.replace('+', ' ')) }?.trim()
             ?.takeIf { it.isNotEmpty() && !COORDS_ONLY.matches(it) }
-        return validated(MapImport(name, null, point.first, point.second))
+        val ftid = GOOGLE_FTID.find(url)?.groupValues?.get(1)?.replace("%3A", ":", ignoreCase = true)?.lowercase()
+        return validated(MapImport(name, null, point.first, point.second, ftid?.let { "google:$it" }))
     }
 
     /** Координаты организации (`poi[point]`) или точки (`pt`); порядок в ссылках Яндекса - долгота, широта. */
@@ -72,7 +76,8 @@ object MapLinkParser {
         if (parts.size < 2) return null
         val lon = parts[0].toDoubleOrNull() ?: return null
         val lat = parts[1].toDoubleOrNull() ?: return null
-        return validated(MapImport(null, null, lat, lon))
+        val oid = query["poi[uri]"]?.let { YANDEX_OID.find(it)?.groupValues?.get(1) }
+        return validated(MapImport(null, null, lat, lon, oid?.let { "yandex:$it" }))
     }
 
     /** Добавляет название и адрес со страницы организации Яндекса; берём их, только если они совпадают с заголовком страницы. */
@@ -88,7 +93,10 @@ object MapLinkParser {
     /** У 2GIS в ссылке нет ни названия, ни точного адреса: только центр карты (`m=долгота,широта/масштаб`). */
     fun parseTwoGis(url: String): MapImport? {
         val match = TWOGIS_CENTER.find(url) ?: TWOGIS_GEO.find(url) ?: return null
-        return validated(MapImport(null, null, match.groupValues[2].toDouble(), match.groupValues[1].toDouble()))
+        val firm = TWOGIS_FIRM.find(url)?.groupValues?.get(1)
+        return validated(
+            MapImport(null, null, match.groupValues[2].toDouble(), match.groupValues[1].toDouble(), firm?.let { "2gis:$it" })
+        )
     }
 
     private fun validated(result: MapImport): MapImport? =
