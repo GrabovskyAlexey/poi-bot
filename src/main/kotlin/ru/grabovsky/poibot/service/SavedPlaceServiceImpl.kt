@@ -24,7 +24,7 @@ class SavedPlaceServiceImpl(
         if (savedPlaceRepository.countByOwnerId(ownerId) >= SavedPlaceService.MAX_PLACES_PER_USER) {
             throw PlaceLimitExceededException(SavedPlaceService.MAX_PLACES_PER_USER)
         }
-        val placeId = resolveLinkedPlaceId(linkPlaceId) ?: newPlace(draft).id!!
+        val placeId = resolveLinkedPlaceId(linkPlaceId)?.also { rememberOrgRef(it, draft) } ?: newPlace(draft).id!!
         val entity = SavedPlace(ownerId = ownerId, placeId = placeId, name = draft.name)
         entity.apply(draft)
         return savedPlaceRepository.save(entity)
@@ -37,7 +37,10 @@ class SavedPlaceServiceImpl(
         entity.apply(draft)
         val linked = resolveLinkedPlaceId(linkPlaceId)
         when {
-            linked != null -> entity.placeId = linked
+            linked != null -> {
+                entity.placeId = linked
+                rememberOrgRef(linked, draft)
+            }
             geoChanged -> entity.placeId = detachedPlaceFor(entity)
         }
         return savedPlaceRepository.save(entity)
@@ -101,8 +104,19 @@ class SavedPlaceServiceImpl(
     }
 
     private fun newPlace(draft: SavedPlaceDraft): Place = placeRepository.save(
-        Place(lat = draft.lat, lon = draft.lon, displayName = draft.name, address = draft.address)
+        Place(lat = draft.lat, lon = draft.lon, displayName = draft.name, address = draft.address, orgRef = draft.orgRef)
     )
+
+    /** Существующее место без id организации узнаёт его из новой записи: дальше его находят по ссылкам на карты. */
+    private fun rememberOrgRef(placeId: Long, draft: SavedPlaceDraft) {
+        val orgRef = draft.orgRef ?: return
+        placeRepository.findById(placeId).ifPresent {
+            if (it.orgRef == null) {
+                it.orgRef = orgRef
+                placeRepository.save(it)
+            }
+        }
+    }
 
     /**
      * Геопозиция записи изменилась без явной привязки к другому месту:

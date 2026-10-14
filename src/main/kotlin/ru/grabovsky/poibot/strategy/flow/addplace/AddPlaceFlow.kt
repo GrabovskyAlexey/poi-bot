@@ -302,7 +302,7 @@ class AddPlaceFlow(
         }
         val needResolve = state.hasLocation() && (state.editingId == null || state.geoChanged())
         if (needResolve) {
-            val candidates = placeMatchingService.findCandidates(state.lat!!, state.lon!!, state.name!!)
+            val candidates = placeMatchingService.findCandidates(state.lat!!, state.lon!!, state.name!!, state.orgRef)
             if (candidates.isNotEmpty()) {
                 state.candidates = candidates.map {
                     CandidateDto(it.placeId, it.name, it.address, it.distanceMeters, it.similarity)
@@ -373,6 +373,7 @@ class AddPlaceFlow(
             status = state.status,
             note = state.note,
             tags = state.tags.toList(),
+            orgRef = state.orgRef,
         )
         // Доля «рейтинг не склеился»: кандидаты были, а пользователь выбрал «другое место»
         if (state.candidates.isNotEmpty()) {
@@ -492,6 +493,7 @@ class AddPlaceFlow(
         if (!message.hasLocation()) return false
         state.lat = message.location.latitude
         state.lon = message.location.longitude
+        state.orgRef = null
         return true
     }
 
@@ -503,6 +505,7 @@ class AddPlaceFlow(
         if (state.address.isNullOrBlank()) state.address = venue.address?.take(PlaceField.ADDRESS.maxLength)
         state.lat = venue.location.latitude
         state.lon = venue.location.longitude
+        state.orgRef = null
         return true
     }
 
@@ -512,6 +515,7 @@ class AddPlaceFlow(
         if (state.address.isNullOrBlank()) state.address = import.address?.take(PlaceField.ADDRESS.maxLength)
         state.lat = import.lat
         state.lon = import.lon
+        state.orgRef = import.orgRef
     }
 
     private fun applyPhoto(state: AddPlaceState, message: Message): Boolean {

@@ -14,7 +14,14 @@ class PlaceMatchingServiceImpl(
 ) : PlaceMatchingService {
 
     @Transactional(readOnly = true)
-    override fun findCandidates(lat: Double, lon: Double, name: String): List<PlaceCandidate> {
+    override fun findCandidates(lat: Double, lon: Double, name: String, orgRef: String?): List<PlaceCandidate> {
+        val sameOrg = orgRef?.let { placeRepository.findFirstByOrgRefAndMergedIntoIdIsNullOrderByIdAsc(it) }
+            ?.let { place ->
+                val distance = if (place.lat != null && place.lon != null) {
+                    GeoUtils.distanceMeters(lat, lon, place.lat!!, place.lon!!).toInt()
+                } else 0
+                PlaceCandidate(place.id!!, place.displayName, place.address, distance, SAME_ORG_SIMILARITY)
+            }
         val box = GeoUtils.boundingBox(lat, lon, PlaceMatchingService.CANDIDATE_RADIUS_METERS.toDouble())
         return placeRepository.findInBox(box.minLat, box.maxLat, box.minLon, box.maxLon)
             .mapNotNull { place ->
@@ -30,7 +37,13 @@ class PlaceMatchingServiceImpl(
                     similarity = NameMatcher.similarity(name, place.displayName),
                 )
             }
+            .filter { it.placeId != sameOrg?.placeId }
             .sortedWith(compareByDescending<PlaceCandidate> { it.similarity }.thenBy { it.distanceMeters })
+            .let { listOfNotNull(sameOrg) + it }
             .take(PlaceMatchingService.MAX_CANDIDATES)
+    }
+
+    private companion object {
+        const val SAME_ORG_SIMILARITY = 1.0
     }
 }

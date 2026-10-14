@@ -10,6 +10,8 @@ import ru.grabovsky.poibot.entity.Place
 @Repository
 interface PlaceRepository : JpaRepository<Place, Long> {
 
+    fun findFirstByOrgRefAndMergedIntoIdIsNullOrderByIdAsc(orgRef: String): Place?
+
     /** Предфильтр по прямоугольнику; точное расстояние считает вызывающий код. */
     @Query(
         "select p from Place p where p.mergedIntoId is null " +

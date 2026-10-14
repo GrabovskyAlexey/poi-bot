@@ -171,6 +171,20 @@ class PlaceRepositoriesIT {
     }
 
     @Test
+    fun shouldFindSamePlaceByOrganizationIdFarAway() {
+        owner(1L)
+        val service = saved()
+        service.create(1L, SavedPlaceDraft(name = "Хмель", lat = 55.7500, lon = 37.6200, orgRef = "yandex:42"))
+        em.flush()
+        em.clear()
+
+        val candidates = PlaceMatchingServiceImpl(placeRepository).findCandidates(55.8000, 37.7000, "Совсем другое", "yandex:42")
+
+        candidates shouldHaveSize 1
+        candidates.first().similarity shouldBe 1.0
+    }
+
+    @Test
     fun shouldPageRecordsNewestFirst() {
         owner(1L)
         val service = saved()

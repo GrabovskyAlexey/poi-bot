@@ -22,6 +22,9 @@ data class Place(
     var displayName: String,
     @Column(name = "address")
     var address: String? = null,
+    /** Id организации в сервисе карт (`yandex:<oid>` и т.п.): два места с одним id - одно заведение. */
+    @Column(name = "org_ref")
+    var orgRef: String? = null,
     @Column(name = "merged_into_id")
     var mergedIntoId: Long? = null,
     @CreationTimestamp

@@ -278,6 +278,22 @@ class AddPlaceFlowTest : ShouldSpec({
         verify { savedPlaceService.create(7L, match { it.name == "Хмель" }, null) }
     }
 
+    should("remember the organization id from a map link and drop it when the location is set by hand") {
+        every { mapImport.import("https://maps.app.goo.gl/x") } returns
+                ru.grabovsky.poibot.maps.MapImport("Кофейня", null, 55.7, 37.6, "yandex:42")
+        val state = AddPlaceState()
+
+        flow.onMessage(context(state), message(text = "https://maps.app.goo.gl/x")).shouldNotBeNull()
+        state.orgRef shouldBe "yandex:42"
+
+        every { matching.findCandidates(55.7, 37.6, "Кофейня", "yandex:42") } returns
+                listOf(PlaceCandidate(9L, "Кофейня", null, 300, 1.0))
+        flow.onCallback(context(state), callback(), "SAVE")!!.stepKey shouldBe "resolve"
+
+        flow.onMessage(context(state), message(location = location(55.8, 37.7))).shouldNotBeNull()
+        state.orgRef shouldBe null
+    }
+
     should("ask to confirm a strong candidate before saving") {
         val state = AddPlaceState(name = "Хмель", lat = 55.0, lon = 37.0)
         every { matching.findCandidates(55.0, 37.0, "Хмель") } returns
