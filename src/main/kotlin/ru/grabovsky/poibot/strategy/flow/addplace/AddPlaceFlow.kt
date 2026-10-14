@@ -40,10 +40,20 @@ class AddPlaceFlow(
         editIdFrom(context.args)?.let { id ->
             savedPlaceService.get(context.user.id, id)?.let(state::loadFrom)
         }
+        val link = linkFrom(context.args)
+        link?.let { started ->
+            // Ссылка на карты, присланная боту вне формы: заполняем форму так же, как при вводе внутри неё
+            mapLinkImportService.import(started.url)?.let { applyMapImport(state, it) }
+                ?: UrlUtils.normalize(started.url)?.let { state.websiteUrl = it }
+        }
         return FlowResult(
             stepKey = AddPlaceStep.FORM.key,
             payload = state,
-            actions = listOf(SendMessageAction(FORM_BINDING, formMessage(state, context.locale))),
+            // Сообщение со ссылкой после открытия формы не нужно: все данные уже в форме
+            actions = listOfNotNull(
+                SendMessageAction(FORM_BINDING, formMessage(state, context.locale)),
+                link?.messageId?.let { DeleteMessageIdAction(it) },
+            ),
         )
     }
 
@@ -641,6 +651,15 @@ class AddPlaceFlow(
 
     private fun button(textKey: String, locale: Locale, data: String, row: Int, col: Int) =
         FlowInlineButton(i18n.i18n(textKey, locale), FlowCallbackPayload(key.value, data), row, col)
+
+    /** Аргумент `LINK:<id сообщения>:<ссылка>`: сообщение пользователя со ссылкой и сама ссылка. */
+    private fun linkFrom(args: String?): StartedLink? {
+        val parts = args?.takeIf { it.startsWith("LINK:") }?.removePrefix("LINK:")?.split(':', limit = 2) ?: return null
+        val url = parts.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return null
+        return StartedLink(parts[0].toIntOrNull(), url)
+    }
+
+    private data class StartedLink(val messageId: Int?, val url: String)
 
     private fun editIdFrom(args: String?): Long? =
         args?.takeIf { it.startsWith("EDIT:") }?.removePrefix("EDIT:")?.substringBefore(':')?.toLongOrNull()

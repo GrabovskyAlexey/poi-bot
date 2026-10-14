@@ -75,6 +75,25 @@ class AddPlaceFlowTest : ShouldSpec({
         result.actions.single().shouldBeInstanceOf<SendMessageAction>()
     }
 
+    should("fill the form from a map link the bot was started with and delete the link message") {
+        every { mapImport.import("https://maps.app.goo.gl/x") } returns
+                ru.grabovsky.poibot.maps.MapImport("Кофейня", "Тверская, 1", 55.7, 37.6)
+
+        val result = flow.start(FlowStartContext(tgUser, locale, "LINK:55:https://maps.app.goo.gl/x"))
+
+        result.payload.name shouldBe "Кофейня"
+        result.payload.address shouldBe "Тверская, 1"
+        result.payload.hasLocation() shouldBe true
+        result.actions.filterIsInstance<DeleteMessageIdAction>().single().messageId shouldBe 55
+    }
+
+    should("keep an unparsed started link as the website") {
+        val result = flow.start(FlowStartContext(tgUser, locale, "LINK:56:https://maps.app.goo.gl/y"))
+
+        result.payload.websiteUrl shouldBe "https://maps.app.goo.gl/y"
+        result.payload.hasLocation() shouldBe false
+    }
+
     should("preload the record when started with EDIT argument") {
         every { savedPlaceService.get(7L, 5L) } returns
                 SavedPlace(id = 5L, ownerId = 7L, placeId = 1L, name = "Хмель", lat = 1.0, lon = 2.0)
