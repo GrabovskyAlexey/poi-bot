@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery
 import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.message.Message
+import ru.grabovsky.poibot.service.BotMetrics
 import ru.grabovsky.poibot.service.interfaces.FlowStateService
 import java.util.*
 
@@ -14,10 +15,20 @@ class FlowEngine(
     private val stateService: FlowStateService,
     private val serializer: FlowPayloadSerializer,
     private val actionExecutor: FlowActionExecutor,
+    private val metrics: BotMetrics,
 ) {
     private val handlerByKey: Map<FlowKey, FlowHandler<out Any>> = handlers.associateBy { it.key }
 
-    fun start(flowKey: FlowKey, user: User, locale: Locale, args: String? = null): Boolean {
+    fun start(flowKey: FlowKey, user: User, locale: Locale, args: String? = null): Boolean =
+        metrics.flow(flowKey.value, "start") { doStart(flowKey, user, locale, args) }
+
+    fun onMessage(flowKey: FlowKey, user: User, locale: Locale, message: Message): Boolean =
+        metrics.flow(flowKey.value, "message") { doOnMessage(flowKey, user, locale, message) }
+
+    fun onCallback(flowKey: FlowKey, user: User, locale: Locale, callbackQuery: CallbackQuery, data: String): Boolean =
+        metrics.flow(flowKey.value, "callback") { doOnCallback(flowKey, user, locale, callbackQuery, data) }
+
+    private fun doStart(flowKey: FlowKey, user: User, locale: Locale, args: String?): Boolean {
         val handler = handler<Any>(flowKey) ?: return false
         stateService.clear(user.id, flowKey)
         val result = handler.start(FlowStartContext(user, locale, args))
@@ -25,7 +36,7 @@ class FlowEngine(
         return true
     }
 
-    fun onMessage(flowKey: FlowKey, user: User, locale: Locale, message: Message): Boolean {
+    private fun doOnMessage(flowKey: FlowKey, user: User, locale: Locale, message: Message): Boolean {
         val handler = handler<Any>(flowKey)
         if (handler == null) {
             logger.debug { "FlowEngine.onMessage: handler not found for flow='${flowKey.value}', userId=${user.id}" }
@@ -53,7 +64,7 @@ class FlowEngine(
         return true
     }
 
-    fun onCallback(flowKey: FlowKey, user: User, locale: Locale, callbackQuery: CallbackQuery, data: String): Boolean {
+    private fun doOnCallback(flowKey: FlowKey, user: User, locale: Locale, callbackQuery: CallbackQuery, data: String): Boolean {
         val handler = handler<Any>(flowKey)
         if (handler == null) {
             logger.debug { "FlowEngine.onCallback: handler not found for flow='${flowKey.value}', userId=${user.id}" }
