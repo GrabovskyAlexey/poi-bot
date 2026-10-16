@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1fb6a6"/>
+      <stop offset="1" stop-color="#1b5fd1"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3f0ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#0a2a66" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="640" height="640" fill="url(#bg)"/>
+  <!-- радиусы поиска /nearby -->
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="6">
+    <ellipse cx="320" cy="470" rx="230" ry="62"/>
+    <ellipse cx="320" cy="470" rx="150" ry="40" stroke-opacity="0.5"/>
+    <ellipse cx="320" cy="470" rx="70" ry="19" stroke-opacity="0.7"/>
+  </g>
+  <!-- пин -->
+  <path filter="url(#shadow)" fill="url(#pin)"
+        d="M320 92c-96 0-170 72-170 164 0 118 128 206 170 258 42-52 170-140 170-258 0-92-74-164-170-164z"/>
+  <!-- звезда: оценка места -->
+  <path fill="#f5a623" stroke="#d98a0b" stroke-width="6" stroke-linejoin="round"
+        d="M320 168l30 66 72 8-54 48 16 71-64-37-64 37 16-71-54-48 72-8z"/>
+</svg>

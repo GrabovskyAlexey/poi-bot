@@ -6,6 +6,14 @@ server:
   port: ${USE_PORT:8091}
   address: 127.0.0.1
 
+# Метрики для Prometheus (/actuator/prometheus): порт слушает только localhost (см. server.address выше),
+# наружу они не выходят; Prometheus на сервере работает в сети хоста и ходит на 127.0.0.1
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
 logging:
   file:
     # каталог смонтирован с хоста; в консоль (docker logs) логи пишутся всегда
