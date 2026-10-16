@@ -33,15 +33,16 @@ class ReceiverServiceImpl(
     private val chatService: ChatService,
     private val groupPlacesService: GroupPlacesService,
     private val inlineShareService: InlineShareService,
+    private val metrics: BotMetrics,
 ) : ReceiverService {
 
     override fun execute(update: Update) {
         try {
             when {
-                update.hasCallbackQuery() -> processCallback(update.callbackQuery)
-                update.hasMessage() -> processMessage(update.message)
-                update.hasMyChatMember() -> processMyChatMember(update.myChatMember)
-                update.hasInlineQuery() -> inlineShareService.answer(update.inlineQuery)
+                update.hasCallbackQuery() -> metrics.update("callback") { processCallback(update.callbackQuery) }
+                update.hasMessage() -> metrics.update("message") { processMessage(update.message) }
+                update.hasMyChatMember() -> metrics.update("member") { processMyChatMember(update.myChatMember) }
+                update.hasInlineQuery() -> metrics.update("inline") { inlineShareService.answer(update.inlineQuery) }
             }
         } catch (error: Exception) {
             // Без этого ошибка в потоке long polling теряется, и состояние flow молча не сохраняется

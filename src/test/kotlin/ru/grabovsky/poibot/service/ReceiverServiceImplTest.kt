@@ -36,7 +36,7 @@ class ReceiverServiceImplTest : ShouldSpec({
     val privateChat = mockk<Chat> { every { isUserChat } returns true }
     val objectMapper = ObjectMapper().findAndRegisterModules()
     val inlineShareService = mockk<InlineShareService>(relaxed = true)
-    val service = ReceiverServiceImpl(userService, objectMapper, flowEngine, flowStateService, chatService, groupPlacesService, inlineShareService)
+    val service = ReceiverServiceImpl(userService, objectMapper, flowEngine, flowStateService, chatService, groupPlacesService, inlineShareService, BotMetrics(io.micrometer.core.instrument.simple.SimpleMeterRegistry()))
 
     beforeTest {
         clearMocks(userService, flowEngine, flowStateService, chatService, groupPlacesService, inlineShareService)

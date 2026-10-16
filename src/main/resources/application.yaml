@@ -24,6 +24,13 @@ management:
     health:
       probes:
         enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      # гистограммы для наших таймеров (poi.*): по ним в Grafana считаются перцентили
+      percentiles-histogram:
+        poi: true
 
 logging:
   file:
